@@ -25,8 +25,18 @@ type MediaState = Record<
   }
 >;
 
-const SIGNALING_SERVER_URL =
-  process.env.NEXT_PUBLIC_SIGNALING_SERVER_URL ?? "http://localhost:4000";
+function getSignalingServerUrl() {
+  if (process.env.NEXT_PUBLIC_SIGNALING_SERVER_URL) {
+    return process.env.NEXT_PUBLIC_SIGNALING_SERVER_URL;
+  }
+
+  if (typeof window === "undefined") {
+    return "http://localhost:4000";
+  }
+
+  const protocol = window.location.protocol === "https:" ? "https:" : "http:";
+  return `${protocol}//${window.location.hostname}:4000`;
+}
 
 function buildIceServers() {
   const stunUrl = process.env.NEXT_PUBLIC_STUN_URL;
@@ -55,6 +65,7 @@ export function RoomClient({ roomId }: { roomId: string }) {
   const [isCameraOff, setIsCameraOff] = useState(false);
   const [mediaState, setMediaState] = useState<MediaState>({});
   const [error, setError] = useState<string | null>(null);
+  const [connectionError, setConnectionError] = useState<string | null>(null);
   const socketRef = useRef<Socket | null>(null);
   const peersRef = useRef<PeerMap>({});
   const localStreamRef = useRef<MediaStream | null>(null);
@@ -62,6 +73,7 @@ export function RoomClient({ roomId }: { roomId: string }) {
     () => `Guest ${Math.random().toString(36).slice(2, 6).toUpperCase()}`,
     [],
   );
+  const signalingServerUrl = useMemo(() => getSignalingServerUrl(), []);
   const gridClassName = useMemo(() => {
     const count = participants.length;
 
@@ -181,7 +193,8 @@ export function RoomClient({ roomId }: { roomId: string }) {
         localStreamRef.current = media;
         setLocalStream(media);
 
-        const socket = io(SIGNALING_SERVER_URL, {
+        const socket = io(signalingServerUrl, {
+          autoConnect: true,
           transports: ["websocket"],
         });
 
@@ -195,6 +208,7 @@ export function RoomClient({ roomId }: { roomId: string }) {
           }
 
           setSocketConnected(true);
+          setConnectionError(null);
           setMediaState((current) => ({
             ...current,
             [socketId]: {
@@ -276,7 +290,7 @@ export function RoomClient({ roomId }: { roomId: string }) {
             peersRef.current[from] = peer;
           }
 
-          peersRef.current[from].signal(signal);
+          peersRef.current[from]?.signal(signal);
         });
 
         socket.on("answer", ({ from, signal }) => {
@@ -316,6 +330,13 @@ export function RoomClient({ roomId }: { roomId: string }) {
         socket.on("disconnect", () => {
           setSocketConnected(false);
         });
+
+        socket.on("connect_error", (connectError) => {
+          setSocketConnected(false);
+          setConnectionError(
+            `Unable to reach signaling server at ${signalingServerUrl}. ${connectError.message}`,
+          );
+        });
       } catch {
         setError(
           "Unable to access camera or microphone. Check browser permissions and try again.",
@@ -333,7 +354,7 @@ export function RoomClient({ roomId }: { roomId: string }) {
       localStreamRef.current = null;
       activeStream?.getTracks().forEach((track) => track.stop());
     };
-  }, [displayName, roomId]);
+  }, [displayName, roomId, signalingServerUrl]);
 
   const updateMediaState = (nextMuted: boolean, nextCameraOff: boolean) => {
     const socket = socketRef.current;
@@ -441,6 +462,12 @@ export function RoomClient({ roomId }: { roomId: string }) {
             </button>
           </div>
         </div>
+
+        {connectionError && (
+          <div className="mb-5 rounded-[1.5rem] border border-amber-500/30 bg-amber-500/10 px-5 py-4 text-sm text-amber-200">
+            {connectionError}
+          </div>
+        )}
 
         {error ? (
           <div className="rounded-[1.75rem] border border-danger/40 bg-danger/10 px-6 py-5 text-danger">
