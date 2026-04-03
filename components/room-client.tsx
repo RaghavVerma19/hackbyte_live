@@ -169,10 +169,16 @@ export function RoomClient({ roomId }: { roomId: string }) {
         socketRef.current = socket;
 
         socket.on("connect", () => {
+          const socketId = socket.id;
+
+          if (!socketId) {
+            return;
+          }
+
           setSocketConnected(true);
           setMediaState((current) => ({
             ...current,
-            [socket.id]: {
+            [socketId]: {
               muted: false,
               cameraOff: false,
               name: displayName
@@ -180,12 +186,13 @@ export function RoomClient({ roomId }: { roomId: string }) {
           }));
           socket.emit("join-room", {
             roomId,
-            peerId: socket.id,
+            peerId: socketId,
             name: displayName
           });
         });
 
         socket.on("room-users", ({ users }) => {
+          const socketId = socket.id;
           const nextMediaState: MediaState = {};
 
           users.forEach((user: { peerId: string; muted: boolean; cameraOff: boolean; name: string }) => {
@@ -195,8 +202,8 @@ export function RoomClient({ roomId }: { roomId: string }) {
               name: user.name
             };
 
-            if (user.peerId !== socket.id && !peersRef.current[user.peerId]) {
-              const peer = createPeer(user.peerId, socket.id!, media, socket, true);
+            if (socketId && user.peerId !== socketId && !peersRef.current[user.peerId]) {
+              const peer = createPeer(user.peerId, socketId, media, socket, true);
               peersRef.current[user.peerId] = peer;
             }
           });
@@ -208,6 +215,8 @@ export function RoomClient({ roomId }: { roomId: string }) {
         });
 
         socket.on("peer-joined", ({ peerId, name, muted, cameraOff }) => {
+          const socketId = socket.id;
+
           setMediaState((current) => ({
             ...current,
             [peerId]: {
@@ -217,15 +226,17 @@ export function RoomClient({ roomId }: { roomId: string }) {
             }
           }));
 
-          if (!peersRef.current[peerId]) {
-            const peer = createPeer(peerId, socket.id!, media, socket, false);
+          if (socketId && !peersRef.current[peerId]) {
+            const peer = createPeer(peerId, socketId, media, socket, false);
             peersRef.current[peerId] = peer;
           }
         });
 
         socket.on("offer", ({ from, signal }) => {
-          if (!peersRef.current[from]) {
-            const peer = createPeer(from, socket.id!, media, socket, false);
+          const socketId = socket.id;
+
+          if (socketId && !peersRef.current[from]) {
+            const peer = createPeer(from, socketId, media, socket, false);
             peersRef.current[from] = peer;
           }
 
