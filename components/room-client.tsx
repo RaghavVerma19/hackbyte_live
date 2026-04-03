@@ -209,14 +209,15 @@ export function RoomClient({ roomId }: { roomId: string }) {
 
           setSocketConnected(true);
           setConnectionError(null);
-          setMediaState((current) => ({
-            ...current,
-            [socketId]: {
+          setMediaState((current) => {
+            const next = { ...current };
+            next[socketId] = {
               muted: false,
               cameraOff: false,
               name: displayName,
-            },
-          }));
+            };
+            return next;
+          });
           socket.emit("join-room", {
             roomId,
             peerId: socketId,
@@ -369,14 +370,15 @@ export function RoomClient({ roomId }: { roomId: string }) {
       return;
     }
 
-    setMediaState((current) => ({
-      ...current,
-      [socketId]: {
+    setMediaState((current) => {
+      const next = { ...current };
+      next[socketId] = {
         ...(current[socketId] ?? { name: displayName }),
         muted: nextMuted,
         cameraOff: nextCameraOff,
-      },
-    }));
+      };
+      return next;
+    });
 
     socket.emit("media-state", {
       roomId,
