@@ -34,8 +34,16 @@ function getSignalingServerUrl() {
     return "http://localhost:4000";
   }
 
-  const protocol = window.location.protocol === "https:" ? "https:" : "http:";
-  return `${protocol}//${window.location.hostname}:4000`;
+  const isLocalhost =
+    window.location.hostname === "localhost" ||
+    window.location.hostname === "127.0.0.1";
+
+  if (isLocalhost) {
+    const protocol = window.location.protocol === "https:" ? "https:" : "http:";
+    return `${protocol}//${window.location.hostname}:4000`;
+  }
+
+  return "";
 }
 
 function buildIceServers() {
@@ -170,6 +178,13 @@ export function RoomClient({ roomId }: { roomId: string }) {
     };
 
     const setup = async () => {
+      if (!signalingServerUrl) {
+        setConnectionError(
+          "Missing NEXT_PUBLIC_SIGNALING_SERVER_URL. Point the frontend to your separately deployed signaling server.",
+        );
+        return;
+      }
+
       try {
         const media = await navigator.mediaDevices.getUserMedia({
           audio: {
