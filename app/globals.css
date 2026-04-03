@@ -4,30 +4,30 @@
 
 :root {
   color-scheme: light;
-  --surface: 245 247 251;
+  --surface: 255 255 255;
   --panel: 255 255 255;
-  --line: 222 227 236;
-  --text: 17 24 39;
-  --muted: 95 107 129;
-  --accent: 59 130 246;
+  --line: 232 234 237;
+  --text: 32 33 36;
+  --muted: 95 99 104;
+  --accent: 26 115 232;
   --success: 22 163 74;
   --danger: 239 68 68;
-  --hero-start: 239 246 255;
-  --hero-end: 255 255 255;
+  --hero-start: 255 255 255;
+  --hero-end: 248 249 250;
 }
 
 .dark {
   color-scheme: dark;
-  --surface: 15 23 42;
-  --panel: 17 24 39;
-  --line: 42 55 78;
-  --text: 243 244 246;
-  --muted: 148 163 184;
-  --accent: 96 165 250;
+  --surface: 32 33 36;
+  --panel: 41 42 45;
+  --line: 60 64 67;
+  --text: 232 234 237;
+  --muted: 154 160 166;
+  --accent: 138 180 248;
   --success: 74 222 128;
   --danger: 248 113 113;
-  --hero-start: 15 23 42;
-  --hero-end: 2 8 23;
+  --hero-start: 32 33 36;
+  --hero-end: 26 27 31;
 }
 
 * {
@@ -38,12 +38,17 @@ html,
 body {
   margin: 0;
   min-height: 100%;
-  background:
-    radial-gradient(circle at top left, rgba(59, 130, 246, 0.12), transparent 28%),
-    radial-gradient(circle at top right, rgba(14, 165, 233, 0.12), transparent 24%),
-    linear-gradient(180deg, rgb(var(--hero-start)), rgb(var(--hero-end)));
+  background: linear-gradient(180deg, rgb(var(--hero-start)), rgb(var(--hero-end)));
   color: rgb(var(--text));
-  font-family: ui-sans-serif, system-ui, sans-serif;
+  font-family:
+    "Google Sans",
+    "Product Sans",
+    ui-sans-serif,
+    system-ui,
+    -apple-system,
+    BlinkMacSystemFont,
+    "Segoe UI",
+    sans-serif;
 }
 
 body {
@@ -65,11 +70,20 @@ input {
   backdrop-filter: blur(18px);
 }
 
-.video-tile::after {
-  content: "";
-  position: absolute;
-  inset: 0;
-  pointer-events: none;
-  border-radius: inherit;
-  border: 1px solid rgba(255, 255, 255, 0.06);
+.meet-shell {
+  width: min(1280px, calc(100vw - 32px));
+  margin-inline: auto;
+}
+
+.meet-dock {
+  background: rgba(32, 33, 36, 0.92);
+  backdrop-filter: blur(18px);
+}
+
+.dark .meet-dock {
+  background: rgba(32, 33, 36, 0.94);
+}
+
+.dark .glass-panel {
+  background: rgba(41, 42, 45, 0.88);
 }

@@ -4,7 +4,14 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import Peer from "simple-peer";
 import { io, Socket } from "socket.io-client";
-import { Copy, Users, ShieldCheck, Wifi } from "lucide-react";
+import {
+  Check,
+  Copy,
+  MessageSquareText,
+  ShieldCheck,
+  Users,
+  Wifi,
+} from "lucide-react";
 import { ControlBar } from "@/components/control-bar";
 import { VideoTile } from "@/components/video-tile";
 
@@ -64,6 +71,13 @@ function buildIceServers() {
   ].filter(Boolean) as RTCIceServer[];
 }
 
+function formatClock(date: Date) {
+  return new Intl.DateTimeFormat("en-US", {
+    hour: "numeric",
+    minute: "2-digit",
+  }).format(date);
+}
+
 export function RoomClient({ roomId }: { roomId: string }) {
   const router = useRouter();
   const [socketConnected, setSocketConnected] = useState(false);
@@ -74,13 +88,13 @@ export function RoomClient({ roomId }: { roomId: string }) {
   const [mediaState, setMediaState] = useState<MediaState>({});
   const [error, setError] = useState<string | null>(null);
   const [connectionError, setConnectionError] = useState<string | null>(null);
+  const [copied, setCopied] = useState(false);
+  const [now, setNow] = useState("--:--");
+  const [currentRoomLink, setCurrentRoomLink] = useState("");
   const socketRef = useRef<Socket | null>(null);
   const peersRef = useRef<PeerMap>({});
   const localStreamRef = useRef<MediaStream | null>(null);
-  const displayName = useMemo(
-    () => `Guest ${Math.random().toString(36).slice(2, 6).toUpperCase()}`,
-    [],
-  );
+  const displayName = "Guest";
   const signalingServerUrl = useMemo(() => getSignalingServerUrl(), []);
   const gridClassName = useMemo(() => {
     const count = participants.length;
@@ -99,6 +113,17 @@ export function RoomClient({ roomId }: { roomId: string }) {
 
     return "md:grid-cols-2 xl:grid-cols-3";
   }, [participants.length]);
+
+  useEffect(() => {
+    setNow(formatClock(new Date()));
+    setCurrentRoomLink(window.location.href);
+
+    const interval = window.setInterval(() => {
+      setNow(formatClock(new Date()));
+    }, 30000);
+
+    return () => window.clearInterval(interval);
+  }, []);
 
   useEffect(() => {
     let isMounted = true;
@@ -431,6 +456,8 @@ export function RoomClient({ roomId }: { roomId: string }) {
 
   const copyRoomLink = async () => {
     await navigator.clipboard.writeText(window.location.href);
+    setCopied(true);
+    window.setTimeout(() => setCopied(false), 1800);
   };
 
   const leaveRoom = () => {
@@ -453,58 +480,74 @@ export function RoomClient({ roomId }: { roomId: string }) {
   };
 
   return (
-    <main className="min-h-screen px-4 pb-28 pt-4 sm:px-6 lg:px-8">
-      <div className="mx-auto max-w-7xl">
-        <div className="mb-5 flex flex-col gap-3 rounded-[1.75rem] border border-line glass-panel px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
-          <div>
-            <p className="text-sm text-muted">Meeting room</p>
-            <h1 className="text-2xl font-semibold tracking-tight">{roomId}</h1>
+    <main className="min-h-screen bg-[#202124] text-white">
+      <header className="flex items-center justify-between gap-4 px-4 py-3 sm:px-6">
+        <div className="flex min-w-0 items-center gap-3">
+          <div className="hidden h-10 w-10 items-center justify-center rounded-2xl bg-white/5 sm:flex">
+            <span className="text-lg font-semibold">H</span>
           </div>
-          <div className="flex flex-wrap items-center gap-2 text-sm text-muted">
-            <Pill icon={<Users className="h-4 w-4" />}>
-              {participants.length + 1} participants
-            </Pill>
-            <Pill icon={<Wifi className="h-4 w-4" />}>
-              {socketConnected ? "Connected" : "Reconnecting"}
-            </Pill>
-            <Pill icon={<ShieldCheck className="h-4 w-4" />}>
-              STUN/TURN Ready
-            </Pill>
-            <button
-              onClick={copyRoomLink}
-              className="inline-flex items-center gap-2 rounded-full border border-line bg-panel px-4 py-2 text-text transition hover:border-accent/40"
-            >
-              <Copy className="h-4 w-4" />
-              Copy Link
-            </button>
+          <div className="min-w-0">
+            <div className="truncate text-base font-medium sm:text-lg">
+              hackbyte meeting
+            </div>
+            <div className="truncate text-xs text-white/60 sm:text-sm">
+              {roomId}
+            </div>
           </div>
         </div>
 
+        <div className="hidden items-center gap-3 text-sm text-white/75 md:flex">
+          <span>{now}</span>
+          <span className="text-white/30">|</span>
+          <span className="font-medium">{roomId.slice(0, 12)}</span>
+        </div>
+
+        <div className="flex items-center gap-2">
+          <TopChip
+            icon={<Users className="h-4 w-4" />}
+            label={`${participants.length + 1}`}
+          />
+          <TopChip
+            icon={<Wifi className="h-4 w-4" />}
+            label={socketConnected ? "Connected" : "Reconnecting"}
+          />
+          <TopChip
+            icon={<ShieldCheck className="h-4 w-4" />}
+            label="Secured"
+            className="hidden sm:inline-flex"
+          />
+        </div>
+      </header>
+
+      <section className="relative px-3 pb-32 sm:px-4 md:px-6">
         {connectionError && (
-          <div className="mb-5 rounded-[1.5rem] border border-amber-500/30 bg-amber-500/10 px-5 py-4 text-sm text-amber-200">
+          <div className="mx-auto mb-4 max-w-7xl rounded-2xl border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-100">
             {connectionError}
           </div>
         )}
 
         {error ? (
-          <div className="rounded-[1.75rem] border border-danger/40 bg-danger/10 px-6 py-5 text-danger">
+          <div className="mx-auto max-w-7xl rounded-2xl border border-red-500/30 bg-red-500/10 px-5 py-4 text-sm text-red-100">
             {error}
           </div>
         ) : (
-          <div className="relative">
-            <section className="glass-panel rounded-[2rem] border border-line p-4 sm:p-5">
-              <div className={`grid gap-4 ${gridClassName}`}>
+          <div className="mx-auto grid max-w-7xl gap-4 xl:grid-cols-[minmax(0,1fr)_328px]">
+            <section className="relative min-h-[calc(100vh-180px)] rounded-[28px] bg-[#161718] p-3 sm:p-4">
+              <div className={`grid h-full gap-3 ${gridClassName}`}>
                 {participants.length === 0 ? (
-                  <div className="flex min-h-[380px] items-center justify-center rounded-[1.75rem] border border-dashed border-line bg-panel/60 text-center text-muted">
-                    Waiting for others to join this room.
+                  <div className="flex min-h-[420px] items-center justify-center rounded-[24px] bg-[#2b2c2f] text-center text-white/68">
+                    <div>
+                      <p className="text-lg">No one else is here yet</p>
+                      <p className="mt-2 text-sm text-white/50">
+                        Share the meeting link to bring others into the call.
+                      </p>
+                    </div>
                   </div>
                 ) : (
                   participants.map((participant) => (
                     <VideoTile
                       key={participant.peerId}
-                      label={
-                        mediaState[participant.peerId]?.name ?? "Participant"
-                      }
+                      label={mediaState[participant.peerId]?.name ?? "Participant"}
                       stream={participant.stream}
                       isMuted={mediaState[participant.peerId]?.muted}
                       isCameraOff={mediaState[participant.peerId]?.cameraOff}
@@ -513,16 +556,20 @@ export function RoomClient({ roomId }: { roomId: string }) {
                   ))
                 )}
               </div>
+
+              <div className="absolute left-5 top-5 hidden rounded-full bg-black/20 px-3 py-1.5 text-xs text-white/75 backdrop-blur md:inline-flex">
+                Meeting stage
+              </div>
             </section>
 
-            <aside className="pointer-events-none fixed bottom-24 right-4 z-30 w-[220px] sm:right-6 sm:w-[260px] lg:bottom-28">
-              <div className="glass-panel pointer-events-auto rounded-[2rem] border border-line p-3 shadow-panel">
-                <div className="mb-3 flex items-center justify-between px-2 pt-1">
+            <aside className="flex flex-col gap-4">
+              <div className="rounded-[28px] bg-[#161718] p-4">
+                <div className="mb-3 flex items-center justify-between">
                   <div>
-                    <p className="text-sm text-muted">Self view</p>
-                    <h2 className="text-lg font-semibold">{displayName}</h2>
+                    <p className="text-sm text-white/55">You</p>
+                    <h2 className="text-lg font-medium">{displayName}</h2>
                   </div>
-                  <div className="rounded-full bg-success/15 px-3 py-1 text-xs font-medium text-success">
+                  <div className="rounded-full bg-emerald-500/15 px-3 py-1 text-xs font-medium text-emerald-300">
                     Live
                   </div>
                 </div>
@@ -532,13 +579,45 @@ export function RoomClient({ roomId }: { roomId: string }) {
                   isMuted={isMuted}
                   isCameraOff={isCameraOff}
                   mirrored
-                  className="min-h-[320px]"
+                  compact
+                  className="min-h-[240px] sm:min-h-[300px]"
                 />
+              </div>
+
+              <div className="rounded-[28px] bg-[#161718] p-4 text-sm text-white/72">
+                <div className="mb-4 flex items-center justify-between">
+                  <div className="text-base font-medium text-white">
+                    Meeting details
+                  </div>
+                  <button
+                    onClick={copyRoomLink}
+                    className="inline-flex items-center gap-2 rounded-full bg-[#303134] px-3 py-2 text-xs font-medium text-white transition hover:bg-[#3c4043]"
+                  >
+                    {copied ? (
+                      <>
+                        <Check className="h-4 w-4" />
+                        Copied
+                      </>
+                    ) : (
+                      <>
+                        <Copy className="h-4 w-4" />
+                        Copy link
+                      </>
+                    )}
+                  </button>
+                </div>
+                <div className="rounded-2xl bg-[#2b2c2f] px-4 py-3 text-xs leading-6 text-white/68">
+                  {currentRoomLink}
+                </div>
+                <div className="mt-4 flex items-center gap-3 rounded-2xl bg-[#2b2c2f] px-4 py-3">
+                  <MessageSquareText className="h-4 w-4 text-white/60" />
+                  <span>Live chat and reactions can be layered in next.</span>
+                </div>
               </div>
             </aside>
           </div>
         )}
-      </div>
+      </section>
 
       <ControlBar
         isMuted={isMuted}
@@ -552,17 +631,21 @@ export function RoomClient({ roomId }: { roomId: string }) {
   );
 }
 
-function Pill({
-  children,
+function TopChip({
   icon,
+  label,
+  className,
 }: {
-  children: React.ReactNode;
   icon: React.ReactNode;
+  label: string;
+  className?: string;
 }) {
   return (
-    <div className="inline-flex items-center gap-2 rounded-full border border-line bg-panel px-3 py-2">
+    <div
+      className={`inline-flex h-10 items-center gap-2 rounded-full bg-white/6 px-3 text-sm text-white/80 ${className ?? ""}`}
+    >
       {icon}
-      {children}
+      <span>{label}</span>
     </div>
   );
 }
