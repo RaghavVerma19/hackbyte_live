@@ -1,0 +1,75 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color-scheme: light;
+  --surface: 245 247 251;
+  --panel: 255 255 255;
+  --line: 222 227 236;
+  --text: 17 24 39;
+  --muted: 95 107 129;
+  --accent: 59 130 246;
+  --success: 22 163 74;
+  --danger: 239 68 68;
+  --hero-start: 239 246 255;
+  --hero-end: 255 255 255;
+}
+
+.dark {
+  color-scheme: dark;
+  --surface: 15 23 42;
+  --panel: 17 24 39;
+  --line: 42 55 78;
+  --text: 243 244 246;
+  --muted: 148 163 184;
+  --accent: 96 165 250;
+  --success: 74 222 128;
+  --danger: 248 113 113;
+  --hero-start: 15 23 42;
+  --hero-end: 2 8 23;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  min-height: 100%;
+  background:
+    radial-gradient(circle at top left, rgba(59, 130, 246, 0.12), transparent 28%),
+    radial-gradient(circle at top right, rgba(14, 165, 233, 0.12), transparent 24%),
+    linear-gradient(180deg, rgb(var(--hero-start)), rgb(var(--hero-end)));
+  color: rgb(var(--text));
+  font-family: ui-sans-serif, system-ui, sans-serif;
+}
+
+body {
+  min-height: 100vh;
+}
+
+a {
+  color: inherit;
+  text-decoration: none;
+}
+
+button,
+input {
+  font: inherit;
+}
+
+.glass-panel {
+  background: color-mix(in srgb, rgb(var(--panel)) 88%, transparent);
+  backdrop-filter: blur(18px);
+}
+
+.video-tile::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  border-radius: inherit;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+}
