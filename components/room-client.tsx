@@ -188,7 +188,7 @@ export function RoomClient({ roomId }: { roomId: string }) {
         socketRef.current = socket;
 
         socket.on("connect", () => {
-          const socketId = socket.id;
+          const socketId: string = socket.id ?? "";
 
           if (!socketId) {
             return;
@@ -338,11 +338,15 @@ export function RoomClient({ roomId }: { roomId: string }) {
   const updateMediaState = (nextMuted: boolean, nextCameraOff: boolean) => {
     const socket = socketRef.current;
 
-    if (!socket?.id) {
+    if (!socket) {
       return;
     }
 
-    const socketId = socket.id;
+    const socketId: string = socket.id ?? "";
+
+    if (!socketId) {
+      return;
+    }
 
     setMediaState((current) => ({
       ...current,
