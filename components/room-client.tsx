@@ -25,7 +25,8 @@ type MediaState = Record<
   }
 >;
 
-const SIGNALING_SERVER_URL = process.env.NEXT_PUBLIC_SIGNALING_SERVER_URL ?? "http://localhost:4000";
+const SIGNALING_SERVER_URL =
+  process.env.NEXT_PUBLIC_SIGNALING_SERVER_URL ?? "http://localhost:4000";
 
 function buildIceServers() {
   const stunUrl = process.env.NEXT_PUBLIC_STUN_URL;
@@ -39,9 +40,9 @@ function buildIceServers() {
       ? {
           urls: turnUrl,
           username: turnUsername,
-          credential: turnCredential
+          credential: turnCredential,
         }
-      : null
+      : null,
   ].filter(Boolean) as RTCIceServer[];
 }
 
@@ -57,7 +58,10 @@ export function RoomClient({ roomId }: { roomId: string }) {
   const socketRef = useRef<Socket | null>(null);
   const peersRef = useRef<PeerMap>({});
   const localStreamRef = useRef<MediaStream | null>(null);
-  const displayName = useMemo(() => `Guest ${Math.random().toString(36).slice(2, 6).toUpperCase()}`, []);
+  const displayName = useMemo(
+    () => `Guest ${Math.random().toString(36).slice(2, 6).toUpperCase()}`,
+    [],
+  );
   const gridClassName = useMemo(() => {
     const count = participants.length;
 
@@ -85,52 +89,67 @@ export function RoomClient({ roomId }: { roomId: string }) {
       callerId: string,
       stream: MediaStream,
       socket: Socket,
-      initiator: boolean
+      initiator: boolean,
     ) => {
       const peer = new Peer({
         initiator,
         trickle: true,
         stream,
         config: {
-          iceServers: buildIceServers()
-        }
+          iceServers: buildIceServers(),
+        },
       });
 
       peer.on("signal", (signal) => {
         const signalData = signal as { type?: string; candidate?: unknown };
         const type =
-          signalData.type === "answer" ? "answer" : signalData.candidate ? "ice-candidate" : "offer";
+          signalData.type === "answer"
+            ? "answer"
+            : signalData.candidate
+              ? "ice-candidate"
+              : "offer";
 
         socket.emit(type, {
           roomId,
           targetPeerId,
           from: callerId,
           signal,
-          candidate: signal
+          candidate: signal,
         });
       });
 
       peer.on("stream", (remoteStream) => {
         setParticipants((current) => {
-          const existing = current.find((participant) => participant.peerId === targetPeerId);
+          const existing = current.find(
+            (participant) => participant.peerId === targetPeerId,
+          );
 
           if (existing) {
             return current.map((participant) =>
-              participant.peerId === targetPeerId ? { ...participant, stream: remoteStream, peer } : participant
+              participant.peerId === targetPeerId
+                ? { ...participant, stream: remoteStream, peer }
+                : participant,
             );
           }
 
-          return [...current, { peerId: targetPeerId, stream: remoteStream, peer }];
+          return [
+            ...current,
+            { peerId: targetPeerId, stream: remoteStream, peer },
+          ];
         });
       });
 
       peer.on("close", () => {
-        setParticipants((current) => current.filter((participant) => participant.peerId !== targetPeerId));
+        setParticipants((current) =>
+          current.filter((participant) => participant.peerId !== targetPeerId),
+        );
         delete peersRef.current[targetPeerId];
       });
 
       peer.on("error", () => {
-        setParticipants((current) => current.filter((participant) => participant.peerId !== targetPeerId));
+        setParticipants((current) =>
+          current.filter((participant) => participant.peerId !== targetPeerId),
+        );
         delete peersRef.current[targetPeerId];
         peer.destroy();
       });
@@ -144,13 +163,13 @@ export function RoomClient({ roomId }: { roomId: string }) {
           audio: {
             echoCancellation: true,
             noiseSuppression: true,
-            autoGainControl: true
+            autoGainControl: true,
           },
           video: {
             width: { ideal: 1280 },
             height: { ideal: 720 },
-            frameRate: { ideal: 30, max: 60 }
-          }
+            frameRate: { ideal: 30, max: 60 },
+          },
         });
 
         if (!isMounted) {
@@ -163,7 +182,7 @@ export function RoomClient({ roomId }: { roomId: string }) {
         setLocalStream(media);
 
         const socket = io(SIGNALING_SERVER_URL, {
-          transports: ["websocket"]
+          transports: ["websocket"],
         });
 
         socketRef.current = socket;
@@ -181,13 +200,13 @@ export function RoomClient({ roomId }: { roomId: string }) {
             [socketId]: {
               muted: false,
               cameraOff: false,
-              name: displayName
-            }
+              name: displayName,
+            },
           }));
           socket.emit("join-room", {
             roomId,
             peerId: socketId,
-            name: displayName
+            name: displayName,
           });
         });
 
@@ -195,22 +214,39 @@ export function RoomClient({ roomId }: { roomId: string }) {
           const socketId = socket.id;
           const nextMediaState: MediaState = {};
 
-          users.forEach((user: { peerId: string; muted: boolean; cameraOff: boolean; name: string }) => {
-            nextMediaState[user.peerId] = {
-              muted: user.muted,
-              cameraOff: user.cameraOff,
-              name: user.name
-            };
+          users.forEach(
+            (user: {
+              peerId: string;
+              muted: boolean;
+              cameraOff: boolean;
+              name: string;
+            }) => {
+              nextMediaState[user.peerId] = {
+                muted: user.muted,
+                cameraOff: user.cameraOff,
+                name: user.name,
+              };
 
-            if (socketId && user.peerId !== socketId && !peersRef.current[user.peerId]) {
-              const peer = createPeer(user.peerId, socketId, media, socket, true);
-              peersRef.current[user.peerId] = peer;
-            }
-          });
+              if (
+                socketId &&
+                user.peerId !== socketId &&
+                !peersRef.current[user.peerId]
+              ) {
+                const peer = createPeer(
+                  user.peerId,
+                  socketId,
+                  media,
+                  socket,
+                  true,
+                );
+                peersRef.current[user.peerId] = peer;
+              }
+            },
+          );
 
           setMediaState((current) => ({
             ...current,
-            ...nextMediaState
+            ...nextMediaState,
           }));
         });
 
@@ -222,8 +258,8 @@ export function RoomClient({ roomId }: { roomId: string }) {
             [peerId]: {
               muted,
               cameraOff,
-              name
-            }
+              name,
+            },
           }));
 
           if (socketId && !peersRef.current[peerId]) {
@@ -259,15 +295,17 @@ export function RoomClient({ roomId }: { roomId: string }) {
             [peerId]: {
               ...(current[peerId] ?? { name: "Participant" }),
               muted,
-              cameraOff
-            }
+              cameraOff,
+            },
           }));
         });
 
         socket.on("peer-left", ({ peerId }) => {
           peersRef.current[peerId]?.destroy();
           delete peersRef.current[peerId];
-          setParticipants((current) => current.filter((participant) => participant.peerId !== peerId));
+          setParticipants((current) =>
+            current.filter((participant) => participant.peerId !== peerId),
+          );
           setMediaState((current) => {
             const next = { ...current };
             delete next[peerId];
@@ -279,7 +317,9 @@ export function RoomClient({ roomId }: { roomId: string }) {
           setSocketConnected(false);
         });
       } catch {
-        setError("Unable to access camera or microphone. Check browser permissions and try again.");
+        setError(
+          "Unable to access camera or microphone. Check browser permissions and try again.",
+        );
       }
     };
 
@@ -302,20 +342,22 @@ export function RoomClient({ roomId }: { roomId: string }) {
       return;
     }
 
+    const socketId = socket.id;
+
     setMediaState((current) => ({
       ...current,
-      [socket.id]: {
-        ...(current[socket.id] ?? { name: displayName }),
+      [socketId]: {
+        ...(current[socketId] ?? { name: displayName }),
         muted: nextMuted,
-        cameraOff: nextCameraOff
-      }
+        cameraOff: nextCameraOff,
+      },
     }));
 
     socket.emit("media-state", {
       roomId,
-      peerId: socket.id,
+      peerId: socketId,
       muted: nextMuted,
-      cameraOff: nextCameraOff
+      cameraOff: nextCameraOff,
     });
   };
 
@@ -350,11 +392,20 @@ export function RoomClient({ roomId }: { roomId: string }) {
   };
 
   const leaveRoom = () => {
+    const socketId = socketRef.current?.id;
+
     Object.values(peersRef.current).forEach((peer) => peer.destroy());
     peersRef.current = {};
     localStream?.getTracks().forEach((track) => track.stop());
     localStreamRef.current = null;
-    socketRef.current?.emit("leave-room", { roomId, peerId: socketRef.current.id });
+
+    if (socketId) {
+      socketRef.current?.emit("leave-room", {
+        roomId,
+        peerId: socketId,
+      });
+    }
+
     socketRef.current?.disconnect();
     router.push("/");
   };
@@ -368,9 +419,15 @@ export function RoomClient({ roomId }: { roomId: string }) {
             <h1 className="text-2xl font-semibold tracking-tight">{roomId}</h1>
           </div>
           <div className="flex flex-wrap items-center gap-2 text-sm text-muted">
-            <Pill icon={<Users className="h-4 w-4" />}>{participants.length + 1} participants</Pill>
-            <Pill icon={<Wifi className="h-4 w-4" />}>{socketConnected ? "Connected" : "Reconnecting"}</Pill>
-            <Pill icon={<ShieldCheck className="h-4 w-4" />}>STUN/TURN Ready</Pill>
+            <Pill icon={<Users className="h-4 w-4" />}>
+              {participants.length + 1} participants
+            </Pill>
+            <Pill icon={<Wifi className="h-4 w-4" />}>
+              {socketConnected ? "Connected" : "Reconnecting"}
+            </Pill>
+            <Pill icon={<ShieldCheck className="h-4 w-4" />}>
+              STUN/TURN Ready
+            </Pill>
             <button
               onClick={copyRoomLink}
               className="inline-flex items-center gap-2 rounded-full border border-line bg-panel px-4 py-2 text-text transition hover:border-accent/40"
@@ -382,7 +439,9 @@ export function RoomClient({ roomId }: { roomId: string }) {
         </div>
 
         {error ? (
-          <div className="rounded-[1.75rem] border border-danger/40 bg-danger/10 px-6 py-5 text-danger">{error}</div>
+          <div className="rounded-[1.75rem] border border-danger/40 bg-danger/10 px-6 py-5 text-danger">
+            {error}
+          </div>
         ) : (
           <div className="relative">
             <section className="glass-panel rounded-[2rem] border border-line p-4 sm:p-5">
@@ -395,7 +454,9 @@ export function RoomClient({ roomId }: { roomId: string }) {
                   participants.map((participant) => (
                     <VideoTile
                       key={participant.peerId}
-                      label={mediaState[participant.peerId]?.name ?? "Participant"}
+                      label={
+                        mediaState[participant.peerId]?.name ?? "Participant"
+                      }
                       stream={participant.stream}
                       isMuted={mediaState[participant.peerId]?.muted}
                       isCameraOff={mediaState[participant.peerId]?.cameraOff}
@@ -413,7 +474,9 @@ export function RoomClient({ roomId }: { roomId: string }) {
                     <p className="text-sm text-muted">Self view</p>
                     <h2 className="text-lg font-semibold">{displayName}</h2>
                   </div>
-                  <div className="rounded-full bg-success/15 px-3 py-1 text-xs font-medium text-success">Live</div>
+                  <div className="rounded-full bg-success/15 px-3 py-1 text-xs font-medium text-success">
+                    Live
+                  </div>
                 </div>
                 <VideoTile
                   label="You"
@@ -443,7 +506,7 @@ export function RoomClient({ roomId }: { roomId: string }) {
 
 function Pill({
   children,
-  icon
+  icon,
 }: {
   children: React.ReactNode;
   icon: React.ReactNode;
