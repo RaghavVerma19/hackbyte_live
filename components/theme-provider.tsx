@@ -12,20 +12,21 @@ type ThemeContextValue = {
 const ThemeContext = createContext<ThemeContextValue | null>(null);
 
 export function ThemeProvider({ children }: { children: React.ReactNode }) {
-  const [theme, setTheme] = useState<Theme>("light");
+  const [theme, setTheme] = useState<Theme>("dark");
 
   useEffect(() => {
     const stored = window.localStorage.getItem("hackbyte-theme") as Theme | null;
-    const systemDark = window.matchMedia("(prefers-color-scheme: dark)").matches;
-    const nextTheme = stored ?? (systemDark ? "dark" : "light");
+    const nextTheme = stored ?? "dark";
     setTheme(nextTheme);
-    document.documentElement.classList.toggle("dark", nextTheme === "dark");
+    document.documentElement.classList.remove("light", "dark");
+    document.documentElement.classList.add(nextTheme);
   }, []);
 
   const toggleTheme = () => {
     setTheme((current) => {
       const nextTheme = current === "light" ? "dark" : "light";
-      document.documentElement.classList.toggle("dark", nextTheme === "dark");
+      document.documentElement.classList.remove("light", "dark");
+      document.documentElement.classList.add(nextTheme);
       window.localStorage.setItem("hackbyte-theme", nextTheme);
       return nextTheme;
     });

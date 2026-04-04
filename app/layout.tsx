@@ -3,9 +3,9 @@ import "./globals.css";
 import { ThemeProvider } from "@/components/theme-provider";
 
 export const metadata: Metadata = {
-  title: "HackByte Live",
+  title: "VerifAI",
   description:
-    "Real-time video calling experience built with Next.js, Socket.io, and WebRTC.",
+    "AI-powered interview and resume intelligence platform.",
 };
 
 export default function RootLayout({

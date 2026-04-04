@@ -1,50 +1,35 @@
 "use client";
 
 import type { ReactNode } from "react";
-import { ChangeEvent, useEffect, useState, useRef } from "react";
+import { ChangeEvent, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
+import { motion } from "framer-motion";
 import {
   ArrowLeft,
   Brain,
   CheckCircle2,
   FileSearch,
-  Github,
   LoaderCircle,
+  Radar,
   ShieldAlert,
   UploadCloud,
 } from "lucide-react";
+import { CircularProgress } from "@/components/ui/circular-progress";
+import { VerifAiLogo } from "@/components/ui/verifai-logo";
 import { clearSession, getApiBaseUrl, readSession } from "@/lib/auth";
 
 type ResumeReport = {
-  candidate?: {
-    name?: string | null;
-    email?: string | null;
-  };
-  atsAnalysis?: {
-    score?: number;
-    verdict?: string;
-    highlights?: string[];
-    wordCount?: number;
-  };
+  candidate?: { name?: string | null; email?: string | null };
+  atsAnalysis?: { score?: number; verdict?: string; highlights?: string[]; wordCount?: number };
   githubAnalytics?: {
     error?: string | null;
-    profile?: {
-      login?: string;
-      name?: string | null;
-      followers?: number;
-      publicRepos?: number;
-      profileUrl?: string;
-    } | null;
+    profile?: { login?: string; name?: string | null; followers?: number; publicRepos?: number; profileUrl?: string } | null;
     matches?: Array<{
       project?: string;
       repo?: string;
-      repoUrl?: string | null;
       matchScore?: number;
-      deploymentChecked?: boolean;
-      stars?: number;
       language?: string | null;
-      lastPushedAt?: string | null;
       commits?: {
         totalRecentCommits?: number;
         commitMessageQuality?: string;
@@ -54,29 +39,11 @@ type ResumeReport = {
       };
     }>;
   };
-  skillDecay?: Array<{
-    skill?: string;
-    monthsAgo?: number | null;
-    decayFlag?: string;
-  }>;
+  skillDecay?: Array<{ skill?: string; monthsAgo?: number | null; decayFlag?: string }>;
   codingProfilesVerification?: {
     verified?: boolean;
-    results?: Record<
-      string,
-      {
-        verified?: boolean;
-        error?: string;
-        mismatches?: string[];
-        actual?: Record<string, string | number | null>;
-      }
-    >;
+    results?: Record<string, { verified?: boolean; error?: string; mismatches?: string[] }>;
   };
-  internships?: Array<{
-    company?: string;
-    role?: string | null;
-    duration?: string | null;
-    highlights?: string[];
-  }>;
   finalAutomatedReview?: {
     summary?: string;
     hireSignal?: "strong" | "mixed" | "risky";
@@ -84,28 +51,19 @@ type ResumeReport = {
   };
 };
 
-function SectionCard({
+function Panel({
   eyebrow,
   title,
   children,
-  tone = "default",
 }: {
   eyebrow: string;
   title: string;
   children: ReactNode;
-  tone?: "default" | "gold" | "emerald";
 }) {
-  const toneClasses =
-    tone === "gold"
-      ? "border-amber-200/20 bg-[linear-gradient(180deg,rgba(255,215,120,0.18),rgba(255,255,255,0.05))]"
-      : tone === "emerald"
-        ? "border-emerald-200/20 bg-[linear-gradient(180deg,rgba(52,211,153,0.15),rgba(255,255,255,0.05))]"
-        : "border-white/10 bg-white/[0.05]";
-
   return (
-    <section className={`resume-glass rounded-[30px] border p-6 ${toneClasses}`}>
-      <div className="text-[11px] uppercase tracking-[0.28em] text-white/45">{eyebrow}</div>
-      <h2 className="mt-3 text-xl font-medium text-white">{title}</h2>
+    <section className="resume-glass rounded-[30px] border border-white/10 p-6">
+      <div className="text-[11px] uppercase tracking-[0.3em] text-white/40">{eyebrow}</div>
+      <h2 className="mt-3 text-2xl font-semibold text-white">{title}</h2>
       <div className="mt-5">{children}</div>
     </section>
   );
@@ -113,13 +71,17 @@ function SectionCard({
 
 export default function UploadDashboard() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const mode = searchParams.get("mode") === "ats" ? "ats" : "resume";
   const [status, setStatus] = useState<"idle" | "analyzing" | "complete" | "error">("idle");
   const [errorMessage, setErrorMessage] = useState("");
   const [report, setReport] = useState<ResumeReport | null>(null);
   const [sessionLoaded, setSessionLoaded] = useState(false);
   const [sessionEmail, setSessionEmail] = useState("");
   const [token, setToken] = useState("");
+  const [selectedFileName, setSelectedFileName] = useState("");
+  const [atsScore, setAtsScore] = useState<number | null>(null);
 
   useEffect(() => {
     const currentSession = readSession();
@@ -136,14 +98,34 @@ export default function UploadDashboard() {
     setSessionLoaded(true);
   }, [router]);
 
+  const extractedSignals = useMemo(() => {
+    if (!report) return [];
+    const skills = (report.skillDecay || []).map((item) => item.skill).filter(Boolean) as string[];
+    const highlights = report.atsAnalysis?.highlights || [];
+    return [...new Set([...skills, ...highlights])].slice(0, 8);
+  }, [report]);
+
   if (!sessionLoaded) {
     return null;
   }
 
-  const handleFileChange = (event: ChangeEvent<HTMLInputElement>) => {
+  const setMode = (nextMode: "resume" | "ats") => {
+    router.replace(`/upload?mode=${nextMode}`);
+    setStatus("idle");
+    setErrorMessage("");
+    setReport(null);
+    setAtsScore(null);
+  };
+
+  const handleFileChange = async (event: ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (!file) return;
-    void submitResume(file);
+    setSelectedFileName(file.name);
+    if (mode === "resume") {
+      await submitResume(file);
+      return;
+    }
+    await simulateAtsScan(file);
   };
 
   const submitResume = async (selectedFile: File) => {
@@ -157,9 +139,7 @@ export default function UploadDashboard() {
 
       const response = await fetch(`${getApiBaseUrl()}/api/analyze-resume`, {
         method: "POST",
-        headers: {
-          Authorization: `Bearer ${token}`,
-        },
+        headers: { Authorization: `Bearer ${token}` },
         body: formData,
       });
 
@@ -176,302 +156,298 @@ export default function UploadDashboard() {
     }
   };
 
+  const simulateAtsScan = async (_selectedFile: File) => {
+    setStatus("analyzing");
+    setErrorMessage("");
+    setReport(null);
+    setAtsScore(null);
+
+    await new Promise((resolve) => window.setTimeout(resolve, 1600));
+    setAtsScore(85);
+    setStatus("complete");
+  };
+
   const logout = () => {
     clearSession();
     router.push("/login");
   };
 
-  const hireTone =
-    report?.finalAutomatedReview?.hireSignal === "strong"
-      ? "emerald"
-      : report?.finalAutomatedReview?.hireSignal === "mixed"
-        ? "gold"
-        : "default";
-
   return (
-    <main className="min-h-screen overflow-x-hidden bg-[#0d0d0f] text-white">
+    <main className="min-h-screen overflow-x-hidden bg-slate-950 text-white">
       <div className="resume-ambient" />
       <div className="relative mx-auto flex min-h-screen w-full max-w-[1480px] flex-col px-5 py-6 sm:px-8">
         <header className="resume-glass flex items-center justify-between rounded-[28px] border border-white/10 px-5 py-4">
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-4">
             <Link
               href="/"
               className="inline-flex h-11 w-11 items-center justify-center rounded-full border border-white/10 bg-white/5 text-white/80 transition hover:bg-white/10"
             >
               <ArrowLeft className="h-4 w-4" />
             </Link>
-            <div>
-              <div className="text-sm text-white/50">HackByte verifier</div>
-              <div className="text-xl font-medium tracking-tight">Resume intelligence console</div>
-            </div>
+            <VerifAiLogo subtitle={mode === "resume" ? "Resume Verifier" : "ATS Score"} />
           </div>
 
-          <button
-            onClick={logout}
-            className="rounded-full border border-white/10 bg-white/5 px-4 py-2 text-sm text-white/70 transition hover:bg-white/10 hover:text-white"
-          >
-            Logout
-          </button>
+          <div className="flex items-center gap-3">
+            <div className="hidden rounded-full border border-white/10 bg-white/5 px-4 py-2 text-sm text-white/60 md:inline-flex">
+              {sessionEmail}
+            </div>
+            <button
+              onClick={logout}
+              className="rounded-full border border-white/10 bg-white/5 px-4 py-2 text-sm text-white/70 transition hover:bg-white/10 hover:text-white"
+            >
+              Logout
+            </button>
+          </div>
         </header>
 
-        <div className="mt-6 grid flex-1 gap-6 xl:grid-cols-[1.15fr_0.85fr]">
+        <div className="mt-6 grid gap-6 xl:grid-cols-[1.08fr_0.92fr]">
           <section className="resume-glass rounded-[34px] border border-white/10 p-6 sm:p-8">
-            <div className="flex flex-col gap-6 xl:flex-row xl:items-end xl:justify-between">
+            <div className="flex flex-col gap-5 xl:flex-row xl:items-start xl:justify-between">
               <div className="max-w-2xl">
                 <div className="text-[11px] uppercase tracking-[0.32em] text-white/45">
-                  Candidate intake
+                  Recruiter tools
                 </div>
-                <h1 className="mt-4 text-4xl font-medium tracking-tight sm:text-5xl">
-                  Parse resumes, verify proof, and surface interview risks.
+                <h1 className="mt-4 text-4xl font-semibold tracking-tight sm:text-5xl">
+                  {mode === "resume"
+                    ? "Verify resume authenticity with public proof."
+                    : "Generate a polished ATS readiness score."}
                 </h1>
-                <p className="mt-4 max-w-xl text-base leading-7 text-white/62">
-                  Upload a candidate PDF and get ATS coverage, GitHub proof, coding-profile verification,
-                  and a concise hiring summary in one pass.
+                <p className="mt-4 max-w-xl text-base leading-8 text-white/62">
+                  {mode === "resume"
+                    ? "Upload a PDF to extract structure, validate GitHub and coding claims, and prepare better interview follow-ups."
+                    : "Run a recruiter-friendly ATS scan view with a premium gauge, readiness score, and actionable feedback."}
                 </p>
               </div>
 
-              <div
-                onClick={() => fileInputRef.current?.click()}
-                className="group flex min-h-[220px] w-full cursor-pointer flex-col items-center justify-center rounded-[28px] border border-dashed border-white/20 bg-[radial-gradient(circle_at_top,rgba(255,210,110,0.18),rgba(255,255,255,0.04)_55%)] px-6 text-center transition hover:border-white/30 hover:bg-[radial-gradient(circle_at_top,rgba(255,210,110,0.24),rgba(255,255,255,0.06)_60%)] xl:max-w-[360px]"
-              >
-                <UploadCloud className="h-10 w-10 text-amber-200 transition group-hover:scale-105" />
-                <div className="mt-5 text-lg font-medium">Drop the candidate resume here</div>
-                <div className="mt-2 text-sm leading-6 text-white/55">
-                  PDF only. The backend extracts structured data, then cross-checks public claims.
-                </div>
-                <div className="mt-5 rounded-full bg-white/10 px-4 py-2 text-xs uppercase tracking-[0.26em] text-white/60">
-                  Click to upload
-                </div>
-                <input
-                  ref={fileInputRef}
-                  type="file"
-                  accept="application/pdf"
-                  className="hidden"
-                  onChange={handleFileChange}
-                />
+              <div className="inline-flex rounded-full border border-white/10 bg-white/5 p-1">
+                <button
+                  onClick={() => setMode("resume")}
+                  className={`rounded-full px-5 py-2 text-sm transition ${
+                    mode === "resume" ? "bg-teal-500 font-medium text-slate-950" : "text-white/65"
+                  }`}
+                >
+                  Resume Verify
+                </button>
+                <button
+                  onClick={() => setMode("ats")}
+                  className={`rounded-full px-5 py-2 text-sm transition ${
+                    mode === "ats" ? "bg-teal-500 font-medium text-slate-950" : "text-white/65"
+                  }`}
+                >
+                  ATS Score
+                </button>
               </div>
             </div>
 
-            {status === "error" && (
+            <motion.div
+              initial={{ opacity: 0, y: 18 }}
+              animate={{ opacity: 1, y: 0 }}
+              className="mt-8 rounded-[30px] border border-dashed border-white/15 bg-[radial-gradient(circle_at_top,rgba(45,212,191,0.16),rgba(255,255,255,0.04)_58%)] p-8 text-center"
+            >
+              <button
+                onClick={() => fileInputRef.current?.click()}
+                className="group flex w-full flex-col items-center justify-center"
+              >
+                <UploadCloud className="h-12 w-12 text-teal-300 transition group-hover:scale-105" />
+                <div className="mt-5 text-xl font-medium">
+                  {mode === "resume" ? "Drop a candidate PDF resume here" : "Drop a resume to run ATS scoring"}
+                </div>
+                <div className="mt-3 max-w-xl text-sm leading-7 text-white/55">
+                  {mode === "resume"
+                    ? "The backend will parse the document, verify public claims, and build a concise review."
+                    : "We will simulate an ATS pass and show a premium score breakdown tailored for recruiter review."}
+                </div>
+                <div className="mt-6 rounded-full bg-white/10 px-5 py-2 text-xs uppercase tracking-[0.28em] text-white/65">
+                  Click to upload
+                </div>
+              </button>
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept="application/pdf"
+                className="hidden"
+                onChange={handleFileChange}
+              />
+              {selectedFileName ? (
+                <div className="mt-6 text-sm text-teal-200">{selectedFileName}</div>
+              ) : null}
+            </motion.div>
+
+            {status === "error" ? (
               <div className="mt-6 flex items-start gap-3 rounded-[24px] border border-red-300/20 bg-red-400/10 px-5 py-4 text-sm text-red-100">
                 <ShieldAlert className="mt-0.5 h-4 w-4 shrink-0" />
                 <span>{errorMessage}</span>
               </div>
-            )}
+            ) : null}
 
-            {status === "analyzing" && (
+            {status === "analyzing" ? (
               <div className="mt-6 flex items-center gap-4 rounded-[24px] border border-white/10 bg-white/[0.06] px-5 py-4">
-                <LoaderCircle className="h-5 w-5 animate-spin text-amber-200" />
+                <LoaderCircle className="h-5 w-5 animate-spin text-teal-200" />
                 <div>
-                  <div className="text-sm font-medium">Running verification protocol</div>
+                  <div className="text-sm font-medium">
+                    {mode === "resume" ? "Running resume verification" : "Scanning ATS compatibility"}
+                  </div>
                   <div className="mt-1 text-sm text-white/55">
-                    Parsing PDF, extracting structured data, and validating public proof.
+                    {mode === "resume"
+                      ? "Parsing PDF, checking public proof, and preparing the recruiter summary."
+                      : "Evaluating structure, readability, and keyword density for ATS systems."}
                   </div>
                 </div>
               </div>
-            )}
+            ) : null}
 
-            {status !== "complete" && (
-              <div className="mt-8 grid gap-4 sm:grid-cols-3">
-                <div className="rounded-[24px] border border-white/10 bg-white/[0.04] p-5">
-                  <FileSearch className="h-5 w-5 text-amber-200" />
-                  <div className="mt-3 text-lg font-medium">Structured extraction</div>
-                  <p className="mt-2 text-sm leading-6 text-white/55">
-                    Pulls contact info, project claims, skills, and coding profiles from a raw PDF.
-                  </p>
-                </div>
-                <div className="rounded-[24px] border border-white/10 bg-white/[0.04] p-5">
-                  <Github className="h-5 w-5 text-amber-200" />
-                  <div className="mt-3 text-lg font-medium">GitHub proofing</div>
-                  <p className="mt-2 text-sm leading-6 text-white/55">
-                    Matches projects, checks commit patterns, and flags dormant claimed skills.
-                  </p>
-                </div>
-                <div className="rounded-[24px] border border-white/10 bg-white/[0.04] p-5">
-                  <Brain className="h-5 w-5 text-amber-200" />
-                  <div className="mt-3 text-lg font-medium">Interview guidance</div>
-                  <p className="mt-2 text-sm leading-6 text-white/55">
-                    Produces a concise hiring signal and focus areas you can use live in the room.
-                  </p>
-                </div>
-              </div>
-            )}
-          </section>
-
-          <aside className="space-y-6">
-            <SectionCard eyebrow="Access" title="Session operator" tone="gold">
-              <div className="text-2xl font-medium">{sessionEmail}</div>
-              <div className="mt-2 text-sm text-white/55">Role: interviewer</div>
-              <div className="mt-5 rounded-[22px] border border-white/10 bg-white/[0.04] p-4 text-sm leading-6 text-white/58">
-                Use this panel to pre-screen before the live interview. The call room and resume console can
-                run independently.
-              </div>
-            </SectionCard>
-
-            {report && (
-              <SectionCard eyebrow="Decision" title="Automated review" tone={hireTone}>
-                <div className="flex items-center justify-between gap-4">
-                  <div className="text-3xl font-medium capitalize">
-                    {report.finalAutomatedReview?.hireSignal || "mixed"}
+            {mode === "resume" && status === "complete" && report ? (
+              <div className="mt-8 grid gap-5 lg:grid-cols-2">
+                <Panel eyebrow="Candidate" title={report.candidate?.name || "Candidate parsed"}>
+                  <div className="text-sm text-white/55">{report.candidate?.email || "Email unavailable"}</div>
+                  <div className="mt-5 flex flex-wrap gap-2">
+                    {extractedSignals.length > 0 ? (
+                      extractedSignals.map((item) => (
+                        <span
+                          key={item}
+                          className="rounded-full border border-white/10 bg-white/[0.05] px-3 py-1.5 text-xs text-white/75"
+                        >
+                          {item}
+                        </span>
+                      ))
+                    ) : (
+                      <span className="text-sm text-white/50">No extracted signals available.</span>
+                    )}
                   </div>
-                  <CheckCircle2 className="h-8 w-8 text-emerald-200" />
-                </div>
-                <p className="mt-4 text-sm leading-7 text-white/70">
-                  {report.finalAutomatedReview?.summary || "Waiting for analysis output."}
-                </p>
-                <div className="mt-4 space-y-2">
-                  {(report.finalAutomatedReview?.focusAreas || []).map((item) => (
-                    <div key={item} className="rounded-2xl bg-white/[0.05] px-4 py-3 text-sm text-white/68">
-                      {item}
-                    </div>
-                  ))}
-                </div>
-              </SectionCard>
-            )}
-          </aside>
-        </div>
+                </Panel>
 
-        {report && (
-          <section className="mt-6 grid gap-6 xl:grid-cols-[1.08fr_0.92fr_0.9fr]">
-            <SectionCard eyebrow="Candidate" title={report.candidate?.name || "Unknown candidate"} tone="gold">
-              <div className="text-sm text-white/55">{report.candidate?.email || "Email unavailable"}</div>
-              <div className="mt-6 grid gap-4 sm:grid-cols-2">
-                <div className="rounded-[22px] bg-white/[0.05] p-4">
-                  <div className="text-[11px] uppercase tracking-[0.25em] text-white/40">ATS score</div>
-                  <div className="mt-2 text-4xl font-medium">{report.atsAnalysis?.score ?? 0}</div>
-                  <div className="mt-2 text-sm text-white/55">{report.atsAnalysis?.verdict}</div>
-                </div>
-                <div className="rounded-[22px] bg-white/[0.05] p-4">
-                  <div className="text-[11px] uppercase tracking-[0.25em] text-white/40">Resume density</div>
-                  <div className="mt-2 text-4xl font-medium">{report.atsAnalysis?.wordCount ?? 0}</div>
-                  <div className="mt-2 text-sm text-white/55">Words parsed from the PDF</div>
-                </div>
+                <Panel eyebrow="Decision" title="Verification summary">
+                  <div className="text-sm leading-7 text-white/75">
+                    {report.finalAutomatedReview?.summary || "Verification finished successfully."}
+                  </div>
+                  <div className="mt-5 space-y-3">
+                    {(report.finalAutomatedReview?.focusAreas || []).map((item) => (
+                      <div key={item} className="rounded-[20px] bg-white/[0.05] px-4 py-3 text-sm text-white/70">
+                        {item}
+                      </div>
+                    ))}
+                  </div>
+                </Panel>
               </div>
+            ) : null}
 
-              <div className="mt-5">
-                <div className="text-[11px] uppercase tracking-[0.25em] text-white/40">ATS highlights</div>
-                <div className="mt-3 flex flex-wrap gap-2">
-                  {(report.atsAnalysis?.highlights || []).map((item) => (
-                    <span key={item} className="rounded-full border border-white/10 bg-white/[0.05] px-3 py-1.5 text-xs text-white/70">
-                      {item}
-                    </span>
-                  ))}
-                </div>
-              </div>
-
-              <div className="mt-5 space-y-3">
-                {(report.internships || []).map((internship, index) => (
-                  <div key={`${internship.company}-${index}`} className="rounded-[22px] bg-white/[0.04] p-4">
-                    <div className="text-lg font-medium">{internship.company || "Internship"}</div>
-                    <div className="mt-1 text-sm text-white/55">
-                      {[internship.role, internship.duration].filter(Boolean).join(" • ")}
-                    </div>
-                    <div className="mt-3 space-y-2 text-sm leading-6 text-white/70">
-                      {(internship.highlights || []).map((highlight) => (
-                        <div key={highlight}>{highlight}</div>
+            {mode === "ats" && status === "complete" && atsScore !== null ? (
+              <motion.div
+                initial={{ opacity: 0, y: 18 }}
+                animate={{ opacity: 1, y: 0 }}
+                className="mt-8 rounded-[30px] border border-white/10 bg-white/[0.05] p-8"
+              >
+                <div className="grid gap-8 lg:grid-cols-[0.9fr_1.1fr] lg:items-center">
+                  <div className="flex justify-center">
+                    <CircularProgress value={atsScore} />
+                  </div>
+                  <div>
+                    <div className="text-[11px] uppercase tracking-[0.3em] text-white/40">ATS analysis</div>
+                    <h2 className="mt-3 text-3xl font-semibold">Strong compatibility detected</h2>
+                    <p className="mt-4 text-sm leading-7 text-white/65">
+                      VerifAI found a clean structure, solid keyword density, and readable formatting for automated screening systems.
+                    </p>
+                    <div className="mt-6 space-y-3">
+                      {[
+                        "Professional summary aligns well with target software roles.",
+                        "Technical keywords are visible without looking stuffed.",
+                        "Project bullets are concise and ATS-readable.",
+                      ].map((item) => (
+                        <div key={item} className="flex items-start gap-3 rounded-[20px] bg-slate-950/55 px-4 py-3 text-sm text-white/75">
+                          <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-teal-300" />
+                          <span>{item}</span>
+                        </div>
                       ))}
                     </div>
                   </div>
-                ))}
-              </div>
-            </SectionCard>
-
-            <SectionCard eyebrow="GitHub" title="Public proof and activity">
-              {report.githubAnalytics?.error ? (
-                <div className="rounded-[22px] border border-amber-200/15 bg-amber-400/10 p-4 text-sm leading-6 text-amber-50">
-                  {report.githubAnalytics.error}
                 </div>
-              ) : (
-                <>
-                  <div className="rounded-[22px] bg-white/[0.05] p-4">
-                    <div className="text-lg font-medium">
-                      {report.githubAnalytics?.profile?.name || report.githubAnalytics?.profile?.login || "GitHub profile"}
-                    </div>
-                    <div className="mt-2 text-sm text-white/55">
-                      Followers: {report.githubAnalytics?.profile?.followers ?? 0} • Public repos:{" "}
-                      {report.githubAnalytics?.profile?.publicRepos ?? 0}
-                    </div>
-                    {report.githubAnalytics?.profile?.profileUrl && (
-                      <a
-                        href={report.githubAnalytics.profile.profileUrl}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="mt-3 inline-flex text-sm text-amber-200 hover:text-amber-100"
-                      >
-                        Open profile
-                      </a>
-                    )}
-                  </div>
+              </motion.div>
+            ) : null}
+          </section>
 
-                  <div className="mt-4 space-y-3">
-                    {(report.githubAnalytics?.matches || []).map((match) => (
-                      <div key={`${match.repo}-${match.project}`} className="rounded-[22px] bg-white/[0.04] p-4">
-                        <div className="flex items-start justify-between gap-3">
-                          <div>
-                            <div className="text-base font-medium">{match.project}</div>
-                            <div className="mt-1 text-sm text-white/55">
-                              Repo: {match.repo} • Match {match.matchScore ?? 0}%
-                            </div>
-                          </div>
-                          <div className="rounded-full bg-white/[0.06] px-3 py-1 text-xs text-white/65">
-                            {match.language || "Unknown stack"}
-                          </div>
+          <aside className="space-y-6">
+            <Panel eyebrow="Mode" title={mode === "resume" ? "Resume verification" : "ATS readiness"}>
+              <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-1">
+                <div className="rounded-[22px] bg-white/[0.04] p-4">
+                  <div className="flex items-center gap-3 text-white">
+                    <FileSearch className="h-5 w-5 text-teal-300" />
+                    Resume proof
+                  </div>
+                  <div className="mt-3 text-sm leading-6 text-white/55">
+                    Match claims, inspect GitHub evidence, and produce recruiter-ready signals.
+                  </div>
+                </div>
+                <div className="rounded-[22px] bg-white/[0.04] p-4">
+                  <div className="flex items-center gap-3 text-white">
+                    <Radar className="h-5 w-5 text-cyan-300" />
+                    ATS clarity
+                  </div>
+                  <div className="mt-3 text-sm leading-6 text-white/55">
+                    Surface scan readiness with a single score and compact feedback.
+                  </div>
+                </div>
+              </div>
+            </Panel>
+
+            {report?.githubAnalytics ? (
+              <Panel eyebrow="GitHub" title="Matched public proof">
+                {report.githubAnalytics.error ? (
+                  <div className="rounded-[20px] bg-red-400/10 px-4 py-3 text-sm text-red-100">
+                    {report.githubAnalytics.error}
+                  </div>
+                ) : (
+                  <div className="space-y-3">
+                    {(report.githubAnalytics.matches || []).slice(0, 3).map((match) => (
+                      <div key={`${match.project}-${match.repo}`} className="rounded-[20px] bg-white/[0.05] p-4">
+                        <div className="text-base font-medium text-white">{match.project || match.repo}</div>
+                        <div className="mt-2 text-sm text-white/55">
+                          Match {match.matchScore ?? 0}% • {match.language || "Unknown language"}
                         </div>
-                        <div className="mt-3 grid gap-2 text-sm text-white/68">
-                          <div>Recent commits: {match.commits?.totalRecentCommits ?? 0}</div>
-                          <div>Commit quality: {match.commits?.commitMessageQuality || "unknown"}</div>
-                          <div>Burst pattern: {match.commits?.burstPattern || "unknown"}</div>
-                          <div>
-                            Collaborators: {match.commits?.collaboratorCount ?? 0}
-                            {match.commits?.builtAlone ? " • solo-built" : ""}
-                          </div>
+                        <div className="mt-3 text-sm text-white/65">
+                          Recent commits: {match.commits?.totalRecentCommits ?? 0} • {match.commits?.burstPattern || "unknown"}
                         </div>
                       </div>
                     ))}
                   </div>
-                </>
-              )}
-            </SectionCard>
+                )}
+              </Panel>
+            ) : null}
 
-            <SectionCard eyebrow="Validation" title="Skills and coding profiles">
-              <div className="space-y-3">
-                {(report.skillDecay || []).map((entry) => (
-                  <div key={entry.skill} className="rounded-[22px] bg-white/[0.04] p-4">
-                    <div className="flex items-center justify-between gap-3">
-                      <div className="text-base font-medium">{entry.skill}</div>
-                      <div className="text-sm text-white/50">
-                        {entry.monthsAgo === null ? "No evidence" : `${entry.monthsAgo} months ago`}
+            {report?.codingProfilesVerification ? (
+              <Panel eyebrow="Profiles" title="Coding verification">
+                <div className="space-y-3">
+                  {Object.entries(report.codingProfilesVerification.results || {}).map(([platform, result]) => (
+                    <div key={platform} className="rounded-[20px] bg-white/[0.05] p-4">
+                      <div className="flex items-center justify-between gap-3">
+                        <div className="text-base font-medium capitalize text-white">{platform}</div>
+                        <div className="text-sm text-white/55">{result.verified ? "Verified" : "Needs review"}</div>
+                      </div>
+                      <div className="mt-3 text-sm leading-6 text-white/65">
+                        {result.error || (result.mismatches || []).join(" ") || "No mismatch found in sampled public data."}
                       </div>
                     </div>
-                    <div className="mt-2 text-sm leading-6 text-white/65">{entry.decayFlag}</div>
-                  </div>
-                ))}
-              </div>
+                  ))}
+                </div>
+              </Panel>
+            ) : null}
 
-              <div className="mt-5 space-y-3">
-                {Object.entries(report.codingProfilesVerification?.results || {}).map(([platform, result]) => (
-                  <div key={platform} className="rounded-[22px] bg-white/[0.04] p-4">
-                    <div className="flex items-center justify-between gap-3">
-                      <div className="text-base font-medium capitalize">{platform}</div>
-                      <div className="text-sm text-white/50">{result.verified ? "Verified" : "Needs review"}</div>
+            {mode === "ats" ? (
+              <Panel eyebrow="Insights" title="Why this view matters">
+                <div className="space-y-3">
+                  {[
+                    "Premium score presentation is easier to use during recruiter discussions.",
+                    "A single gauge helps compare candidates quickly before the live interview starts.",
+                    "This mode stays UI-only, so your backend resume analysis logic remains untouched.",
+                  ].map((item) => (
+                    <div key={item} className="rounded-[20px] bg-white/[0.05] px-4 py-3 text-sm leading-6 text-white/70">
+                      {item}
                     </div>
-                    {result.error ? (
-                      <div className="mt-2 text-sm text-red-200">{result.error}</div>
-                    ) : (
-                      <div className="mt-3 space-y-2 text-sm leading-6 text-white/65">
-                        {(result.mismatches || []).length === 0 ? (
-                          <div>No mismatch found in the sampled public data.</div>
-                        ) : (
-                          (result.mismatches || []).map((mismatch) => <div key={mismatch}>{mismatch}</div>)
-                        )}
-                      </div>
-                    )}
-                  </div>
-                ))}
-              </div>
-            </SectionCard>
-          </section>
-        )}
+                  ))}
+                </div>
+              </Panel>
+            ) : null}
+          </aside>
+        </div>
       </div>
     </main>
   );

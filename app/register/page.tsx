@@ -3,12 +3,15 @@
 import { FormEvent, useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { KeyRound, Mail, UserRound, Video } from "lucide-react";
+import { motion } from "framer-motion";
+import { ArrowRight, KeyRound, Mail, UserRound } from "lucide-react";
 import { ThemeToggle } from "@/components/theme-toggle";
+import { VerifAiLogo } from "@/components/ui/verifai-logo";
 import { fetchJson, readSession, saveSession, type AuthRole, type AuthSession } from "@/lib/auth";
 
 export default function RegisterPage() {
   const router = useRouter();
+  const [fullName, setFullName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [role, setRole] = useState<AuthRole>("candidate");
@@ -38,10 +41,8 @@ export default function RegisterPage() {
           }),
         },
       );
-      saveSession({
-        token: response.token,
-        user: response.user,
-      });
+
+      saveSession({ token: response.token, user: response.user });
       router.push("/");
     } catch (submitError) {
       setError(submitError instanceof Error ? submitError.message : "Unable to create account.");
@@ -51,107 +52,170 @@ export default function RegisterPage() {
   };
 
   return (
-    <main className="min-h-screen bg-surface text-text">
-      <header className="meet-shell flex items-center justify-between py-5">
-        <div className="flex items-center gap-3">
-          <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-accent/12 text-accent">
-            <Video className="h-5 w-5" />
-          </div>
-          <span className="text-[1.35rem] font-medium tracking-tight">HackByte Interview</span>
-        </div>
-        <ThemeToggle />
-      </header>
+    <main className="min-h-screen overflow-hidden bg-slate-950 text-white">
+      <div className="resume-ambient" />
+      <div className="relative">
+        <header className="meet-shell flex items-center justify-between py-6">
+          <VerifAiLogo subtitle="Create account" />
+          <ThemeToggle />
+        </header>
 
-      <section className="meet-shell flex min-h-[calc(100vh-92px)] items-center justify-center pb-10 pt-2">
-        <form onSubmit={handleSubmit} className="glass-panel w-full max-w-lg rounded-[28px] border border-line p-8 shadow-[0_20px_60px_rgba(0,0,0,0.08)]">
-          <div className="text-center">
-            <h1 className="text-3xl font-medium tracking-tight">Create account</h1>
-            <p className="mt-3 text-sm leading-6 text-muted">
-              Choose your role and get into your interview workflow.
-            </p>
-          </div>
-
-          <div className="mt-8 space-y-4">
-            <label className="block">
-              <span className="mb-2 block text-sm text-muted">Email</span>
-              <div className="flex items-center gap-3 rounded-2xl border border-line bg-panel px-4 py-3">
-                <Mail className="h-4 w-4 text-muted" />
-                <input
-                  type="email"
-                  value={email}
-                  onChange={(event) => setEmail(event.target.value)}
-                  placeholder="you@example.com"
-                  className="w-full bg-transparent text-sm outline-none placeholder:text-muted"
-                  required
-                />
+        <section className="meet-shell flex min-h-[calc(100vh-92px)] items-center justify-center py-10">
+          <motion.div
+            initial={{ opacity: 0, y: 26 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.55 }}
+            className="grid w-full max-w-6xl gap-8 xl:grid-cols-[1fr_0.98fr]"
+          >
+            <form
+              onSubmit={handleSubmit}
+              className="glass-panel mx-auto w-full max-w-2xl rounded-[34px] border border-white/10 p-8 sm:p-10"
+            >
+              <div className="inline-flex rounded-full border border-white/10 bg-white/5 p-1">
+                <Link
+                  href="/login"
+                  className="rounded-full px-5 py-2 text-sm text-white/65 transition hover:text-white"
+                >
+                  Sign In
+                </Link>
+                <span className="rounded-full bg-teal-500 px-5 py-2 text-sm font-medium text-slate-950">
+                  Sign Up
+                </span>
               </div>
-            </label>
 
-            <label className="block">
-              <span className="mb-2 block text-sm text-muted">Password</span>
-              <div className="flex items-center gap-3 rounded-2xl border border-line bg-panel px-4 py-3">
-                <KeyRound className="h-4 w-4 text-muted" />
-                <input
-                  type="password"
-                  value={password}
-                  onChange={(event) => setPassword(event.target.value)}
-                  placeholder="At least 8 characters"
-                  className="w-full bg-transparent text-sm outline-none placeholder:text-muted"
-                  required
-                />
+              <div className="mt-8">
+                <h1 className="text-3xl font-semibold tracking-tight">Create your VerifAI account</h1>
+                <p className="mt-3 text-sm leading-7 text-slate-300">
+                  Choose a role, complete onboarding, and step into the same protected interview workflow.
+                </p>
               </div>
-            </label>
 
-            <div>
-              <span className="mb-2 block text-sm text-muted">Role</span>
-              <div className="grid gap-3 sm:grid-cols-2">
-                {([
-                  { value: "candidate", label: "Candidate", description: "Join interview rooms and share your screen." },
-                  { value: "interviewer", label: "Interviewer", description: "Create rooms and review candidate signals." },
-                ] as const).map((option) => (
-                  <button
-                    key={option.value}
-                    type="button"
-                    onClick={() => setRole(option.value)}
-                    className={`rounded-2xl border px-4 py-4 text-left transition ${
-                      role === option.value
-                        ? "border-accent bg-accent/8"
-                        : "border-line bg-panel hover:border-accent/30"
-                    }`}
-                  >
-                    <div className="flex items-center gap-2 text-sm font-medium">
-                      <UserRound className="h-4 w-4" />
-                      {option.label}
-                    </div>
-                    <div className="mt-2 text-sm leading-6 text-muted">{option.description}</div>
-                  </button>
+              <div className="mt-8 grid gap-5">
+                <label className="block">
+                  <span className="mb-2 block text-sm text-white/60">Full name</span>
+                  <div className="flex items-center gap-3 rounded-[22px] border border-white/10 bg-slate-950/70 px-4 py-3.5">
+                    <UserRound className="h-4 w-4 text-emerald-300" />
+                    <input
+                      type="text"
+                      value={fullName}
+                      onChange={(event) => setFullName(event.target.value)}
+                      placeholder="Jessica Parker"
+                      className="w-full bg-transparent text-sm outline-none placeholder:text-white/30"
+                      required
+                    />
+                  </div>
+                </label>
+
+                <label className="block">
+                  <span className="mb-2 block text-sm text-white/60">Email</span>
+                  <div className="flex items-center gap-3 rounded-[22px] border border-white/10 bg-slate-950/70 px-4 py-3.5">
+                    <Mail className="h-4 w-4 text-teal-300" />
+                    <input
+                      type="email"
+                      value={email}
+                      onChange={(event) => setEmail(event.target.value)}
+                      placeholder="you@example.com"
+                      className="w-full bg-transparent text-sm outline-none placeholder:text-white/30"
+                      required
+                    />
+                  </div>
+                </label>
+
+                <label className="block">
+                  <span className="mb-2 block text-sm text-white/60">Password</span>
+                  <div className="flex items-center gap-3 rounded-[22px] border border-white/10 bg-slate-950/70 px-4 py-3.5">
+                    <KeyRound className="h-4 w-4 text-cyan-300" />
+                    <input
+                      type="password"
+                      value={password}
+                      onChange={(event) => setPassword(event.target.value)}
+                      placeholder="At least 8 characters"
+                      className="w-full bg-transparent text-sm outline-none placeholder:text-white/30"
+                      required
+                    />
+                  </div>
+                </label>
+
+                <div>
+                  <span className="mb-2 block text-sm text-white/60">Role Selection</span>
+                  <div className="grid gap-4 md:grid-cols-2">
+                    {([
+                      {
+                        value: "candidate",
+                        title: "I am a Candidate",
+                        description: "Join interviews, share your screen, and keep the call experience distraction-free.",
+                      },
+                      {
+                        value: "interviewer",
+                        title: "I am an Interviewer",
+                        description: "Create interviews, verify resumes, and monitor AI-backed hiring signals live.",
+                      },
+                    ] as const).map((option) => (
+                      <button
+                        key={option.value}
+                        type="button"
+                        onClick={() => setRole(option.value)}
+                        className={`rounded-[24px] border p-5 text-left transition ${
+                          role === option.value
+                            ? "border-teal-400/40 bg-teal-400/10 shadow-[0_0_30px_rgba(45,212,191,0.12)]"
+                            : "border-white/10 bg-white/[0.04] hover:border-teal-400/25 hover:bg-white/[0.06]"
+                        }`}
+                      >
+                        <div className="text-base font-medium text-white">{option.title}</div>
+                        <div className="mt-3 text-sm leading-7 text-slate-300">{option.description}</div>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </div>
+
+              {error ? (
+                <div className="mt-5 rounded-[22px] border border-red-400/20 bg-red-400/10 px-4 py-3 text-sm text-red-100">
+                  {error}
+                </div>
+              ) : null}
+
+              <button
+                type="submit"
+                disabled={submitting}
+                className="mt-7 inline-flex h-12 w-full items-center justify-center gap-2 rounded-full bg-teal-500 text-sm font-medium text-slate-950 transition hover:bg-teal-400 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {submitting ? "Creating account..." : "Create Account"}
+                <ArrowRight className="h-4 w-4" />
+              </button>
+
+              <p className="mt-6 text-center text-sm text-white/55">
+                Already have an account?{" "}
+                <Link href="/login" className="font-medium text-teal-300 hover:text-teal-200">
+                  Sign in
+                </Link>
+              </p>
+            </form>
+
+            <div className="hidden rounded-[34px] border border-white/10 bg-white/[0.05] p-8 xl:block">
+              <div className="text-xs uppercase tracking-[0.34em] text-teal-200">Role aware onboarding</div>
+              <h2 className="mt-5 text-4xl font-semibold leading-tight">
+                One interface, two experiences, the same secure backend.
+              </h2>
+              <p className="mt-5 max-w-xl text-base leading-8 text-slate-300">
+                Candidates move into clean interview rooms while recruiters unlock resume verification,
+                ATS reviews, and live AI signals on top of the existing room infrastructure.
+              </p>
+              <div className="mt-10 grid gap-4">
+                {[
+                  "Candidates see a focused join flow and room experience.",
+                  "Interviewers unlock resume review and room creation controls.",
+                  fullName ? `Welcome preview: ${fullName}` : "Your profile name is captured on this form without changing backend auth logic.",
+                ].map((item) => (
+                  <div key={item} className="rounded-[24px] border border-white/10 bg-slate-950/60 px-5 py-4 text-sm text-slate-200">
+                    {item}
+                  </div>
                 ))}
               </div>
             </div>
-          </div>
-
-          {error && (
-            <div className="mt-4 rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
-              {error}
-            </div>
-          )}
-
-          <button
-            type="submit"
-            disabled={submitting}
-            className="mt-6 inline-flex h-12 w-full items-center justify-center rounded-full bg-accent text-sm font-medium text-white transition hover:bg-accent/90 disabled:cursor-not-allowed disabled:opacity-60"
-          >
-            {submitting ? "Creating account..." : "Create account"}
-          </button>
-
-          <p className="mt-5 text-center text-sm text-muted">
-            Already have an account?{" "}
-            <Link href="/login" className="font-medium text-accent">
-              Sign in
-            </Link>
-          </p>
-        </form>
-      </section>
+          </motion.div>
+        </section>
+      </div>
     </main>
   );
 }
