@@ -1,13 +1,12 @@
 "use client";
 
 import {
-  Camera,
-  CameraOff,
   Copy,
   EllipsisVertical,
   Info,
   Mic,
   MicOff,
+  MonitorUp,
   PhoneOff,
   SmilePlus,
 } from "lucide-react";
@@ -15,18 +14,22 @@ import { ThemeToggle } from "@/components/theme-toggle";
 
 type ControlBarProps = {
   isMuted: boolean;
-  isCameraOff: boolean;
+  isScreenSharing: boolean;
+  isScreenSharePending: boolean;
+  controlsLocked?: boolean;
   onToggleMute: () => void;
-  onToggleCamera: () => void;
+  onToggleScreenShare: () => void;
   onCopyLink: () => void;
   onLeave: () => void;
 };
 
 export function ControlBar({
   isMuted,
-  isCameraOff,
+  isScreenSharing,
+  isScreenSharePending,
+  controlsLocked,
   onToggleMute,
-  onToggleCamera,
+  onToggleScreenShare,
   onCopyLink,
   onLeave,
 }: ControlBarProps) {
@@ -44,14 +47,22 @@ export function ControlBar({
               active={!isMuted}
               danger={isMuted}
               onClick={onToggleMute}
+              disabled={controlsLocked}
               icon={isMuted ? <MicOff className="h-5 w-5" /> : <Mic className="h-5 w-5" />}
             />
             <RoundButton
-              label={isCameraOff ? "Turn on camera" : "Turn off camera"}
-              active={!isCameraOff}
-              danger={isCameraOff}
-              onClick={onToggleCamera}
-              icon={isCameraOff ? <CameraOff className="h-5 w-5" /> : <Camera className="h-5 w-5" />}
+              label={
+                isScreenSharing
+                  ? "Stop sharing screen"
+                  : isScreenSharePending
+                    ? "Starting screen share"
+                    : "Share screen to start"
+              }
+              active={isScreenSharing}
+              danger={!isScreenSharing && !isScreenSharePending}
+              onClick={onToggleScreenShare}
+              disabled={isScreenSharePending}
+              icon={<MonitorUp className="h-5 w-5" />}
             />
             <RoundButton
               label="Meeting details"
@@ -109,6 +120,7 @@ function RoundButton({
   active,
   danger,
   className,
+  disabled,
 }: {
   label: string;
   icon: React.ReactNode;
@@ -116,19 +128,21 @@ function RoundButton({
   active?: boolean;
   danger?: boolean;
   className?: string;
+  disabled?: boolean;
 }) {
   return (
     <button
       aria-label={label}
       title={label}
       onClick={onClick}
+      disabled={disabled}
       className={`inline-flex h-12 w-12 items-center justify-center rounded-full border text-sm transition sm:h-14 sm:w-14 ${
         danger
           ? "border-[#ea4335] bg-[#ea4335] text-white hover:bg-[#d93025]"
           : active
             ? "border-white/10 bg-[#3c4043] text-white hover:bg-[#4a4d50] dark:border-white/10"
             : "border-white/10 bg-[#3c4043] text-white"
-      } ${className ?? ""}`}
+      } ${disabled ? "cursor-not-allowed opacity-55 hover:bg-inherit" : ""} ${className ?? ""}`}
     >
       {icon}
     </button>
