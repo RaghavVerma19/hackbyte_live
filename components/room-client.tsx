@@ -234,6 +234,9 @@ function getSpeechRecognitionCtor() {
       })
     | null;
 }
+function getFrontendDeepgramApiKey() {
+  return process.env.NEXT_PUBLIC_DEEPGRAM_API_KEY || "";
+}
 function getDistance(
   pointA: { x: number; y: number },
   pointB: { x: number; y: number },
@@ -1253,93 +1256,89 @@ export function RoomClient({ roomId }: { roomId: string }) {
       selectedRole !== "candidate" ||
       !localStream ||
       !socketConnected ||
-      !roomState.interviewStarted
+      !roomState.interviewStarted ||
+      Boolean(getFrontendDeepgramApiKey())
     ) {
       return;
     }
 
-    const SpeechRecognitionCtor = getSpeechRecognitionCtor();
+    const deepgramApiKey = getFrontendDeepgramApiKey();
     const socket = socketRef.current;
     const peerId = socket?.id;
-    if (!SpeechRecognitionCtor || !socket || !peerId) {
+    if (!deepgramApiKey || !socket || !peerId) {
       return;
     }
 
-    let stopped = false;
-    let restartTimer: number | null = null;
-    let recognition: InstanceType<NonNullable<ReturnType<typeof getSpeechRecognitionCtor>>> | null = null;
+    const audioTrack = localStream.getAudioTracks()[0];
+    if (!audioTrack || typeof MediaRecorder === "undefined") {
+      return;
+    }
+
+    const deepgramUrl =
+      "wss://api.deepgram.com/v1/listen?model=nova-2&interim_results=true&smart_format=true&endpointing=300";
+    const ws = new WebSocket(deepgramUrl, ["token", deepgramApiKey]);
+    const mimeType = getAudioRecorderMimeType();
+    const audioStream = new MediaStream([audioTrack]);
+    const recorder = mimeType
+      ? new MediaRecorder(audioStream, { mimeType })
+      : new MediaRecorder(audioStream);
     let lastFinalTranscript = "";
+    let ready = false;
 
-    const startRecognition = () => {
-      if (stopped) return;
+    ws.onopen = () => {
+      ready = true;
+      recorder.start(250);
+    };
 
-      recognition = new SpeechRecognitionCtor();
-      recognition.continuous = true;
-      recognition.interimResults = true;
-      recognition.lang = "en-US";
+    ws.onmessage = (event) => {
+      try {
+        const payload = JSON.parse(event.data);
+        const transcript = payload?.channel?.alternatives?.[0]?.transcript?.trim() || "";
+        if (!transcript) return;
 
-      recognition.onresult = (event) => {
-        let interimText = "";
-
-        for (let index = event.resultIndex; index < event.results.length; index += 1) {
-          const result = event.results[index];
-          const transcript = result?.[0]?.transcript?.trim();
-          if (!transcript) continue;
-
-          if (result.isFinal) {
-            if (transcript !== lastFinalTranscript) {
-              lastFinalTranscript = transcript;
-              socket.emit("candidate-live-transcript", {
-                roomId,
-                peerId,
-                text: transcript,
-                isFinal: true,
-              });
-            }
-          } else {
-            interimText += `${transcript} `;
+        if (payload.is_final === true) {
+          if (transcript !== lastFinalTranscript) {
+            lastFinalTranscript = transcript;
+            socket.emit("candidate-live-transcript", {
+              roomId,
+              peerId,
+              text: transcript,
+              isFinal: true,
+            });
           }
+          return;
         }
 
         socket.emit("candidate-live-transcript", {
           roomId,
           peerId,
-          text: interimText.trim(),
+          text: transcript,
           isFinal: false,
         });
-      };
-
-      recognition.onerror = () => {
-        // Keep the recorder fallback active even if browser speech recognition is unreliable.
-      };
-
-      recognition.onend = () => {
-        if (!stopped && !isMutedRef.current) {
-          restartTimer = window.setTimeout(() => {
-            startRecognition();
-          }, 300);
-        }
-      };
-
-      try {
-        recognition.start();
-      } catch {
-        // Let the recorder fallback continue even if browser recognition refuses to start.
+      } catch (transcriptError) {
+        console.error("Deepgram transcript parse failed:", transcriptError);
       }
     };
 
-    startRecognition();
+    recorder.ondataavailable = async (event) => {
+      if (!ready || !event.data.size || ws.readyState !== WebSocket.OPEN || isMutedRef.current) {
+        return;
+      }
+
+      try {
+        ws.send(await event.data.arrayBuffer());
+      } catch (streamError) {
+        console.error("Deepgram stream send failed:", streamError);
+      }
+    };
 
     return () => {
-      stopped = true;
-      if (recognition) {
-        recognition.onresult = null;
-        recognition.onerror = null;
-        recognition.onend = null;
-        recognition.stop();
+      recorder.ondataavailable = null;
+      if (recorder.state !== "inactive") {
+        recorder.stop();
       }
-      if (restartTimer) {
-        window.clearTimeout(restartTimer);
+      if (ws.readyState === WebSocket.OPEN) {
+        ws.close();
       }
     };
   }, [localStream, roomId, roomState.interviewStarted, selectedRole, socketConnected]);
