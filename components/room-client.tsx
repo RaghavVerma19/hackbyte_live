@@ -208,6 +208,7 @@ function MeetTile({
   stream,
   name,
   muted = false,
+  playbackMuted = false,
   cameraOff = false,
   mirrored = false,
   className = "",
@@ -215,6 +216,7 @@ function MeetTile({
   stream?: MediaStream;
   name: string;
   muted?: boolean;
+  playbackMuted?: boolean;
   cameraOff?: boolean;
   mirrored?: boolean;
   className?: string;
@@ -239,7 +241,7 @@ function MeetTile({
           ref={videoRef}
           autoPlay
           playsInline
-          muted
+          muted={playbackMuted}
           className={`absolute inset-0 h-full w-full object-cover ${mirrored ? "scale-x-[-1]" : ""}`}
         />
       )}
@@ -272,6 +274,7 @@ function CrossFadeTile(props: {
   stream?: MediaStream;
   name: string;
   muted?: boolean;
+  playbackMuted?: boolean;
   cameraOff?: boolean;
   className?: string;
 }) {
@@ -1286,6 +1289,7 @@ export function RoomClient({ roomId }: { roomId: string }) {
                     stream={localStream ?? undefined}
                     name={`${displayName || "You"} (you)`}
                     muted={isMuted}
+                    playbackMuted
                     cameraOff={false}
                     mirrored
                     className="h-full"
@@ -1305,6 +1309,7 @@ export function RoomClient({ roomId }: { roomId: string }) {
                   stream={localStream ?? undefined}
                   name={`${displayName || "You"} (you)`}
                   muted={isMuted}
+                  playbackMuted
                   cameraOff={false}
                   mirrored
                   className="h-full"
