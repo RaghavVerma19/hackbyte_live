@@ -85,6 +85,27 @@ type AiTranscriptState = {
   draft: string;
   mode: "waiting" | "browser" | "deepgram" | "streaming";
 };
+type EyeMovementEvent = {
+  direction: "L" | "R";
+  timestamp: string;
+};
+type EyeAnalysisState = {
+  isCheating: boolean;
+  cheatingScore: number;
+  isTypewriterMovement: boolean;
+  typewriterScore: number;
+  confidence: "idle" | "low" | "medium" | "high";
+  summary: string;
+  reason: string;
+  recommendation: string;
+  eventCount: number;
+  lastUpdatedAt: number | null;
+  history: Array<{
+    cheatingScore: number;
+    isCheating: boolean;
+    timestamp: number;
+  }>;
+};
 
 const EMPTY_ROOM_STATE: RoomState = {
   roomId: "",
@@ -114,6 +135,31 @@ const EMPTY_AI_TRANSCRIPTS: AiTranscriptState = {
   draft: "",
   mode: "waiting",
 };
+const EMPTY_EYE_ANALYSIS: EyeAnalysisState = {
+  isCheating: false,
+  cheatingScore: 0,
+  isTypewriterMovement: false,
+  typewriterScore: 0,
+  confidence: "idle",
+  summary: "Waiting for candidate eye-movement data.",
+  reason: "No analysis window received yet.",
+  recommendation: "Keep monitoring the candidate feed.",
+  eventCount: 0,
+  lastUpdatedAt: null,
+  history: [],
+};
+const FACE_MESH_CDN = "https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh@0.4.1633559619";
+const FACE_MESH_SCRIPT = `${FACE_MESH_CDN}/face_mesh.js`;
+const LEFT_STEP_THRESHOLD = 0.0009;
+const LEFT_ACCUM_TRIGGER = 0.0052;
+const RIGHT_FAST_THRESHOLD = 0.0038;
+const RIGHT_STEP_THRESHOLD = 0.0016;
+const RIGHT_ACCUM_TRIGGER = 0.006;
+const STILL_DELTA_DEADZONE = 0.00075;
+const FALLBACK_DELTA_THRESHOLD = 0.0012;
+const FALLBACK_CONSECUTIVE_FRAMES = 3;
+const BLINK_THRESHOLD = 0.2;
+const EYE_ANALYSIS_INTERVAL_MS = 10000;
 
 /* ─── pure helpers ─── */
 function getSignalingServerUrl() {
@@ -187,6 +233,40 @@ function getSpeechRecognitionCtor() {
         stop: () => void;
       })
     | null;
+}
+function getDistance(
+  pointA: { x: number; y: number },
+  pointB: { x: number; y: number },
+) {
+  const dx = pointA.x - pointB.x;
+  const dy = pointA.y - pointB.y;
+  return Math.sqrt(dx * dx + dy * dy);
+}
+function loadScriptOnce(src: string) {
+  return new Promise<void>((resolve, reject) => {
+    const existing = document.querySelector(`script[src="${src}"]`) as HTMLScriptElement | null;
+    if (existing) {
+      if (existing.dataset.loaded === "true") {
+        resolve();
+        return;
+      }
+      existing.addEventListener("load", () => resolve(), { once: true });
+      existing.addEventListener("error", () => reject(new Error(`Failed to load ${src}`)), {
+        once: true,
+      });
+      return;
+    }
+
+    const script = document.createElement("script");
+    script.src = src;
+    script.async = true;
+    script.onload = () => {
+      script.dataset.loaded = "true";
+      resolve();
+    };
+    script.onerror = () => reject(new Error(`Failed to load ${src}`));
+    document.head.appendChild(script);
+  });
 }
 function getStreamScore(stream?: MediaStream) {
   const t = stream?.getVideoTracks()[0];
@@ -613,6 +693,79 @@ function TranscriptFeed({ state }: { state: AiTranscriptState }) {
   );
 }
 
+function EyeAnalysisCard({ analysis }: { analysis: EyeAnalysisState }) {
+  const tone =
+    analysis.cheatingScore >= 70
+      ? "text-red-200"
+      : analysis.cheatingScore >= 45
+        ? "text-amber-100"
+        : "text-emerald-200";
+
+  return (
+    <div className="meet-slide rounded-2xl bg-[#2a2b2f] px-5 py-4" style={{ animationDelay: "60ms" }}>
+      <div className="flex items-center justify-between gap-3">
+        <div className="text-xs uppercase tracking-[0.2em] text-white/45">
+          Eye proctoring
+        </div>
+        <span className={`text-xs font-medium ${tone}`}>
+          {analysis.isCheating ? "Reading risk" : "Stable"}
+        </span>
+      </div>
+
+      <div className="mt-4 grid gap-3 sm:grid-cols-2">
+        <MetricPill label="Cheating score" value={`${analysis.cheatingScore}%`} tone={tone} />
+        <MetricPill label="Typewriter sweep" value={`${analysis.typewriterScore}%`} tone={analysis.isTypewriterMovement ? "text-amber-100" : "text-white"} />
+        <MetricPill label="Events" value={`${analysis.eventCount}`} tone="text-white" />
+        <MetricPill label="Confidence" value={analysis.confidence} tone="text-white" />
+      </div>
+
+      <div className="mt-4 text-sm text-white/82">{analysis.summary}</div>
+      <div className="mt-2 text-xs leading-6 text-white/50">{analysis.reason}</div>
+      <div className="mt-3 text-xs text-white/65">{analysis.recommendation}</div>
+
+      {analysis.history.length > 0 && (
+        <div className="mt-4">
+          <div className="mb-2 text-[11px] uppercase tracking-[0.18em] text-white/35">
+            Recent windows
+          </div>
+          <div className="flex gap-1.5">
+            {analysis.history.map((item) => (
+              <div
+                key={item.timestamp}
+                className={`h-10 flex-1 rounded-md ${
+                  item.cheatingScore >= 70
+                    ? "bg-red-400/45"
+                    : item.cheatingScore >= 45
+                      ? "bg-amber-300/45"
+                      : "bg-emerald-400/35"
+                }`}
+                title={`${new Date(item.timestamp).toLocaleTimeString()} • ${item.cheatingScore}%`}
+              />
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function MetricPill({
+  label,
+  value,
+  tone,
+}: {
+  label: string;
+  value: string;
+  tone: string;
+}) {
+  return (
+    <div className="rounded-xl bg-white/[0.04] px-4 py-3">
+      <div className="text-[11px] uppercase tracking-[0.16em] text-white/35">{label}</div>
+      <div className={`mt-1 text-lg font-semibold ${tone}`}>{value}</div>
+    </div>
+  );
+}
+
 /* ══════════════════════════════════════════════════════════════════
    ROOM CLIENT
 ══════════════════════════════════════════════════════════════════ */
@@ -640,6 +793,7 @@ export function RoomClient({ roomId }: { roomId: string }) {
   const [currentRoomLink, setCurrentRoomLink] = useState("");
   const [aiScore, setAiScore] = useState<AiScoreState>(EMPTY_AI_SCORE);
   const [aiTranscripts, setAiTranscripts] = useState<AiTranscriptState>(EMPTY_AI_TRANSCRIPTS);
+  const [eyeAnalysis, setEyeAnalysis] = useState<EyeAnalysisState>(EMPTY_EYE_ANALYSIS);
   /* which feed the interviewer sees as main */
   const [interviewerMainView, setInterviewerMainView] = useState<
     "screen" | "camera"
@@ -649,11 +803,19 @@ export function RoomClient({ roomId }: { roomId: string }) {
   const peersRef = useRef<PeerMap>({});
   const roomStateRef = useRef<RoomState>({ ...EMPTY_ROOM_STATE, roomId });
   const knownUsersRef = useRef<Record<string, UserSnapshot>>({});
+  const eyeVideoRef = useRef<HTMLVideoElement | null>(null);
   const cameraStreamRef = useRef<MediaStream | null>(null);
   const screenStreamRef = useRef<MediaStream | null>(null);
   const publishedStreamsRef = useRef<MediaStream[]>([]);
   const iceServersRef = useRef<RTCIceServer[]>(buildFallbackIceServers());
   const isMutedRef = useRef(false);
+  const smoothedRatioRef = useRef<number | null>(null);
+  const leftMomentumRef = useRef(0);
+  const rightMomentumRef = useRef(0);
+  const fallbackRightStreakRef = useRef(0);
+  const fallbackLeftStreakRef = useRef(0);
+  const blinkLockFramesRef = useRef(0);
+  const eyeMovementEventsRef = useRef<EyeMovementEvent[]>([]);
   const pendingJoinShareStateRef = useRef({
     active: false,
     displaySurface: null as string | null,
@@ -689,6 +851,16 @@ export function RoomClient({ roomId }: { roomId: string }) {
     });
     knownUsersRef.current = next;
     setMediaState(next);
+  };
+
+  const resetEyeTracking = () => {
+    smoothedRatioRef.current = null;
+    leftMomentumRef.current = 0;
+    rightMomentumRef.current = 0;
+    fallbackRightStreakRef.current = 0;
+    fallbackLeftStreakRef.current = 0;
+    blinkLockFramesRef.current = 0;
+    eyeMovementEventsRef.current = [];
   };
 
   const createPeer = (
@@ -789,6 +961,8 @@ export function RoomClient({ roomId }: { roomId: string }) {
     setSocketConnected(false);
     setAiScore(EMPTY_AI_SCORE);
     setAiTranscripts(EMPTY_AI_TRANSCRIPTS);
+    setEyeAnalysis(EMPTY_EYE_ANALYSIS);
+    resetEyeTracking();
     syncKnownUsers([]);
     const next = { ...EMPTY_ROOM_STATE, roomId };
     setRoomState(next);
@@ -923,6 +1097,9 @@ export function RoomClient({ roomId }: { roomId: string }) {
     });
     socket.on("ai-score-update", (nextAiScore: AiScoreState) => {
       setAiScore(nextAiScore);
+    });
+    socket.on("eye-analysis-update", (nextEyeAnalysis: EyeAnalysisState) => {
+      setEyeAnalysis(nextEyeAnalysis);
     });
     socket.on(
       "ai-transcript-update",
@@ -1164,6 +1341,235 @@ export function RoomClient({ roomId }: { roomId: string }) {
       if (restartTimer) {
         window.clearTimeout(restartTimer);
       }
+    };
+  }, [localStream, roomId, roomState.interviewStarted, selectedRole, socketConnected]);
+
+  useEffect(() => {
+    if (
+      selectedRole !== "candidate" ||
+      !localStream ||
+      !socketConnected ||
+      !roomState.interviewStarted ||
+      !eyeVideoRef.current
+    ) {
+      return;
+    }
+
+    let cancelled = false;
+    let animationFrame = 0;
+    let flushInterval = 0;
+    let faceMesh: {
+      setOptions: (options: Record<string, unknown>) => void;
+      onResults: (
+        handler: (results: {
+          multiFaceLandmarks?: Array<Array<{ x: number; y: number }>>;
+        }) => void,
+      ) => void;
+      send: (payload: { image: HTMLVideoElement }) => Promise<void>;
+      close: () => void;
+    } | null = null;
+
+    resetEyeTracking();
+
+    const emitDirection = (direction: "L" | "R") => {
+      eyeMovementEventsRef.current.push({
+        direction,
+        timestamp: new Date().toISOString(),
+      });
+    };
+
+    const processGaze = (ratio: number) => {
+      const previousSmoothed = smoothedRatioRef.current ?? ratio;
+      const alpha = 0.4;
+      const smoothedRatio = previousSmoothed + alpha * (ratio - previousSmoothed);
+      smoothedRatioRef.current = smoothedRatio;
+      const delta = smoothedRatio - previousSmoothed;
+
+      if (Math.abs(delta) < STILL_DELTA_DEADZONE) {
+        leftMomentumRef.current *= 0.5;
+        rightMomentumRef.current *= 0.5;
+        fallbackRightStreakRef.current = 0;
+        fallbackLeftStreakRef.current = 0;
+        return;
+      }
+
+      if (delta <= -LEFT_STEP_THRESHOLD) leftMomentumRef.current += Math.abs(delta);
+      else leftMomentumRef.current *= 0.72;
+
+      if (delta >= RIGHT_STEP_THRESHOLD) rightMomentumRef.current += delta;
+      else rightMomentumRef.current *= 0.7;
+
+      let emitted = false;
+      if (delta >= RIGHT_FAST_THRESHOLD || rightMomentumRef.current >= RIGHT_ACCUM_TRIGGER) {
+        rightMomentumRef.current = 0;
+        leftMomentumRef.current *= 0.55;
+        fallbackRightStreakRef.current = 0;
+        fallbackLeftStreakRef.current = 0;
+        emitDirection("R");
+        emitted = true;
+      } else if (leftMomentumRef.current >= LEFT_ACCUM_TRIGGER) {
+        leftMomentumRef.current = 0;
+        rightMomentumRef.current *= 0.55;
+        fallbackRightStreakRef.current = 0;
+        fallbackLeftStreakRef.current = 0;
+        emitDirection("L");
+        emitted = true;
+      }
+
+      if (!emitted) {
+        if (delta >= FALLBACK_DELTA_THRESHOLD) {
+          fallbackRightStreakRef.current += 1;
+          fallbackLeftStreakRef.current = 0;
+        } else if (delta <= -FALLBACK_DELTA_THRESHOLD) {
+          fallbackLeftStreakRef.current += 1;
+          fallbackRightStreakRef.current = 0;
+        } else {
+          fallbackRightStreakRef.current = 0;
+          fallbackLeftStreakRef.current = 0;
+        }
+
+        if (fallbackRightStreakRef.current >= FALLBACK_CONSECUTIVE_FRAMES) {
+          fallbackRightStreakRef.current = 0;
+          emitDirection("R");
+        } else if (fallbackLeftStreakRef.current >= FALLBACK_CONSECUTIVE_FRAMES) {
+          fallbackLeftStreakRef.current = 0;
+          emitDirection("L");
+        }
+      }
+    };
+
+    const handleFaceResults = (results: {
+      multiFaceLandmarks?: Array<Array<{ x: number; y: number }>>;
+    }) => {
+      const landmarks = results.multiFaceLandmarks?.[0];
+      if (!landmarks) {
+        smoothedRatioRef.current = null;
+        return;
+      }
+
+      const leftOuter = landmarks[33];
+      const leftInner = landmarks[133];
+      const rightInner = landmarks[362];
+      const rightOuter = landmarks[263];
+      const leftTop = landmarks[159];
+      const leftBottom = landmarks[145];
+      const rightTop = landmarks[386];
+      const rightBottom = landmarks[374];
+      const leftIris = landmarks[468];
+      const rightIris = landmarks[473];
+
+      const leftWidth = getDistance(leftOuter, leftInner);
+      const rightWidth = getDistance(rightInner, rightOuter);
+      const leftHeight = getDistance(leftTop, leftBottom);
+      const rightHeight = getDistance(rightTop, rightBottom);
+      if (leftWidth <= 0 || rightWidth <= 0) return;
+
+      const leftEar = leftHeight / leftWidth;
+      const rightEar = rightHeight / rightWidth;
+      const avgEar = (leftEar + rightEar) / 2;
+
+      if (avgEar < BLINK_THRESHOLD) {
+        blinkLockFramesRef.current = 5;
+        leftMomentumRef.current = 0;
+        rightMomentumRef.current = 0;
+        smoothedRatioRef.current = null;
+        return;
+      }
+
+      if (blinkLockFramesRef.current > 0) {
+        blinkLockFramesRef.current -= 1;
+        leftMomentumRef.current = 0;
+        rightMomentumRef.current = 0;
+        smoothedRatioRef.current = null;
+        return;
+      }
+
+      const leftRatio = getDistance(leftIris, leftOuter) / leftWidth;
+      const rightRatio = getDistance(rightIris, rightInner) / rightWidth;
+      processGaze((leftRatio + rightRatio) / 2);
+    };
+
+    const setupFaceMesh = async () => {
+      try {
+        await loadScriptOnce(FACE_MESH_SCRIPT);
+        if (cancelled || !eyeVideoRef.current) return;
+
+        const FaceMeshCtor = (
+          window as Window & {
+            FaceMesh?: new (options: {
+              locateFile: (file: string) => string;
+            }) => {
+              setOptions: (options: Record<string, unknown>) => void;
+              onResults: (
+                handler: (results: {
+                  multiFaceLandmarks?: Array<Array<{ x: number; y: number }>>;
+                }) => void,
+              ) => void;
+              send: (payload: { image: HTMLVideoElement }) => Promise<void>;
+              close: () => void;
+            };
+          }
+        ).FaceMesh;
+
+        if (!FaceMeshCtor) return;
+
+        faceMesh = new FaceMeshCtor({
+          locateFile: (file) => `${FACE_MESH_CDN}/${file}`,
+        });
+        faceMesh.setOptions({
+          maxNumFaces: 1,
+          refineLandmarks: true,
+          minDetectionConfidence: 0.6,
+          minTrackingConfidence: 0.6,
+        });
+        faceMesh.onResults(handleFaceResults);
+
+        eyeVideoRef.current.srcObject = localStream;
+        eyeVideoRef.current.muted = true;
+        await eyeVideoRef.current.play().catch(() => undefined);
+
+        const runLoop = async () => {
+          if (cancelled || !faceMesh || !eyeVideoRef.current) return;
+          if (eyeVideoRef.current.readyState >= 2) {
+            await faceMesh.send({ image: eyeVideoRef.current });
+          }
+          animationFrame = window.requestAnimationFrame(runLoop);
+        };
+
+        animationFrame = window.requestAnimationFrame(runLoop);
+        flushInterval = window.setInterval(() => {
+          const activeSocket = socketRef.current;
+          const peerId = activeSocket?.id;
+          if (!activeSocket || !peerId || activeSocket.disconnected) return;
+
+          const movementEvents = [...eyeMovementEventsRef.current];
+          eyeMovementEventsRef.current = [];
+          activeSocket.emit("eye-movement-batch", {
+            roomId,
+            peerId,
+            movementEvents,
+            phase: "ANSWER",
+          });
+        }, EYE_ANALYSIS_INTERVAL_MS);
+      } catch (eyeError) {
+        console.error("Eye proctoring setup failed:", eyeError);
+      }
+    };
+
+    void setupFaceMesh();
+
+    return () => {
+      cancelled = true;
+      window.clearInterval(flushInterval);
+      window.cancelAnimationFrame(animationFrame);
+      if (faceMesh) {
+        faceMesh.close();
+      }
+      if (eyeVideoRef.current) {
+        eyeVideoRef.current.pause();
+        eyeVideoRef.current.srcObject = null;
+      }
+      resetEyeTracking();
     };
   }, [localStream, roomId, roomState.interviewStarted, selectedRole, socketConnected]);
 
@@ -1527,6 +1933,7 @@ export function RoomClient({ roomId }: { roomId: string }) {
               <aside className="grid min-h-0 gap-3 content-start">
                 <AiSignalCard score={aiScore} />
                 <TranscriptFeed state={aiTranscripts} />
+                <EyeAnalysisCard analysis={eyeAnalysis} />
               </aside>
             </div>
           )}
@@ -1650,6 +2057,8 @@ export function RoomClient({ roomId }: { roomId: string }) {
             />
           </div>
         </div>
+
+        <video ref={eyeVideoRef} autoPlay playsInline muted className="hidden" />
       </div>
     </>
   );
