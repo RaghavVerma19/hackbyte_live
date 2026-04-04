@@ -62,6 +62,8 @@ type AiScoreState = {
   aiLikelihood: number | null;
   confidence: "idle" | "low" | "medium" | "high";
   samplesAnalyzed: number;
+  chunkCount: number;
+  transcriptCount: number;
   updatedAt: number | null;
   status:
     | "idle"
@@ -72,6 +74,10 @@ type AiScoreState = {
     | "transcription_disabled"
     | "scoring_disabled";
   detail: string;
+};
+type AiTranscriptEntry = {
+  text: string;
+  createdAt: number;
 };
 
 const EMPTY_ROOM_STATE: RoomState = {
@@ -90,6 +96,8 @@ const EMPTY_AI_SCORE: AiScoreState = {
   aiLikelihood: null,
   confidence: "idle",
   samplesAnalyzed: 0,
+  chunkCount: 0,
+  transcriptCount: 0,
   updatedAt: null,
   status: "idle",
   detail: "Waiting for candidate audio.",
@@ -513,8 +521,42 @@ function AiSignalCard({ score }: { score: AiScoreState }) {
         <span>{score.updatedAt ? new Date(score.updatedAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }) : statusLabel}</span>
       </div>
       <div className="mt-1 flex items-center justify-between text-[11px] text-white/35">
+        <span>{score.chunkCount} audio chunk{score.chunkCount === 1 ? "" : "s"}</span>
+        <span>{score.transcriptCount} transcript{score.transcriptCount === 1 ? "" : "s"}</span>
+      </div>
+      <div className="mt-1 flex items-center justify-between text-[11px] text-white/35">
         <span className="capitalize">{score.confidence} confidence</span>
         <span>{statusLabel}</span>
+      </div>
+    </div>
+  );
+}
+
+function TranscriptFeed({ transcripts }: { transcripts: AiTranscriptEntry[] }) {
+  return (
+    <div className="meet-slide rounded-xl bg-[#2a2b2f] px-4 py-3" style={{ animationDelay: "40ms" }}>
+      <div className="flex items-center justify-between gap-3">
+        <div className="text-[11px] uppercase tracking-[0.18em] text-white/45">
+          Live transcript
+        </div>
+        <span className="text-[11px] text-white/35">{transcripts.length} snippet{transcripts.length === 1 ? "" : "s"}</span>
+      </div>
+
+      <div className="mt-3 space-y-2">
+        {transcripts.length === 0 ? (
+          <div className="rounded-lg bg-white/[0.04] px-3 py-3 text-xs text-white/45">
+            Transcript snippets will appear here once candidate speech is captured.
+          </div>
+        ) : (
+          [...transcripts].reverse().map((entry, index) => (
+            <div key={`${entry.createdAt}-${index}`} className="rounded-lg bg-white/[0.04] px-3 py-2.5">
+              <div className="text-[11px] text-white/35">
+                {new Date(entry.createdAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit", second: "2-digit" })}
+              </div>
+              <div className="mt-1 text-xs leading-5 text-white/78">{entry.text}</div>
+            </div>
+          ))
+        )}
       </div>
     </div>
   );
@@ -546,6 +588,7 @@ export function RoomClient({ roomId }: { roomId: string }) {
   const [now, setNow] = useState("--:--");
   const [currentRoomLink, setCurrentRoomLink] = useState("");
   const [aiScore, setAiScore] = useState<AiScoreState>(EMPTY_AI_SCORE);
+  const [aiTranscripts, setAiTranscripts] = useState<AiTranscriptEntry[]>([]);
   /* which feed the interviewer sees as main */
   const [interviewerMainView, setInterviewerMainView] = useState<
     "screen" | "camera"
@@ -694,6 +737,7 @@ export function RoomClient({ roomId }: { roomId: string }) {
     socketRef.current = null;
     setSocketConnected(false);
     setAiScore(EMPTY_AI_SCORE);
+    setAiTranscripts([]);
     syncKnownUsers([]);
     const next = { ...EMPTY_ROOM_STATE, roomId };
     setRoomState(next);
@@ -829,6 +873,12 @@ export function RoomClient({ roomId }: { roomId: string }) {
     socket.on("ai-score-update", (nextAiScore: AiScoreState) => {
       setAiScore(nextAiScore);
     });
+    socket.on(
+      "ai-transcript-update",
+      ({ transcripts }: { transcripts: AiTranscriptEntry[] }) => {
+        setAiTranscripts(transcripts);
+      },
+    );
     socket.on("room-error", ({ message }) => setServerError(message));
     socket.on("disconnect", () => setSocketConnected(false));
     socket.on("connect_error", (e) => {
@@ -1008,7 +1058,7 @@ export function RoomClient({ roomId }: { roomId: string }) {
       }
     };
 
-    recorder.start(8000);
+    recorder.start(3000);
 
     return () => {
       recorder.ondataavailable = null;
@@ -1246,6 +1296,7 @@ export function RoomClient({ roomId }: { roomId: string }) {
               {/* Right strip: candidate cam (top) + self cam (bottom) */}
               <div className="flex w-[210px] flex-shrink-0 flex-col gap-2">
                 <AiSignalCard score={aiScore} />
+                <TranscriptFeed transcripts={aiTranscripts} />
 
                 <div
                   className="meet-slide flex-1"
