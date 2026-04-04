@@ -15,9 +15,13 @@ const config: Config = {
         success: "rgb(var(--success) / <alpha-value>)",
         danger: "rgb(var(--danger) / <alpha-value>)"
       },
+      fontFamily: {
+        sans: ['"Inter"', "ui-sans-serif", "system-ui", "-apple-system", "sans-serif"],
+        serif: ['"Playfair Display"', "Georgia", '"Times New Roman"', "serif"]
+      },
       boxShadow: {
-        panel: "0 24px 80px rgba(15, 23, 42, 0.12)",
-        glow: "0 10px 30px rgba(59, 130, 246, 0.18)"
+        panel: "0 24px 80px rgba(0, 0, 0, 0.3)",
+        glow: "0 10px 30px rgba(220, 38, 38, 0.15)"
       },
       borderRadius: {
         "4xl": "2rem"

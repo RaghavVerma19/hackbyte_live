@@ -1,33 +1,37 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Playfair+Display:ital,wght@0,400;0,500;0,600;0,700;1,400;1,500&display=swap');
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
 :root {
   color-scheme: dark;
-  --surface: 2 6 23;
-  --panel: 15 23 42;
-  --line: 148 163 184;
-  --text: 226 232 240;
-  --muted: 148 163 184;
-  --accent: 45 212 191;
+  --surface: 0 0 0;
+  --panel: 10 10 10;
+  --line: 38 38 38;
+  --text: 245 245 245;
+  --muted: 115 115 115;
+  --accent: 220 38 38;
+  --accent-soft: 220 38 38;
   --success: 74 222 128;
   --danger: 248 113 113;
-  --hero-start: 2 6 23;
-  --hero-end: 9 9 11;
+  --hero-start: 0 0 0;
+  --hero-end: 5 5 5;
 }
 
 .light {
   color-scheme: light;
-  --surface: 248 250 252;
+  --surface: 250 250 250;
   --panel: 255 255 255;
-  --line: 203 213 225;
-  --text: 15 23 42;
-  --muted: 100 116 139;
-  --accent: 13 148 136;
+  --line: 229 229 229;
+  --text: 10 10 10;
+  --muted: 115 115 115;
+  --accent: 185 28 28;
+  --accent-soft: 185 28 28;
   --success: 34 197 94;
   --danger: 239 68 68;
-  --hero-start: 248 250 252;
-  --hero-end: 226 232 240;
+  --hero-start: 250 250 250;
+  --hero-end: 240 240 240;
 }
 
 * {
@@ -38,19 +42,11 @@ html,
 body {
   margin: 0;
   min-height: 100%;
-  background:
-    radial-gradient(circle at top, rgba(45, 212, 191, 0.1), transparent 28%),
-    radial-gradient(circle at 80% 10%, rgba(34, 211, 238, 0.08), transparent 22%),
-    linear-gradient(180deg, rgb(var(--hero-start)), rgb(var(--hero-end)));
+  background: rgb(var(--surface));
   color: rgb(var(--text));
-  font-family:
-    "Plus Jakarta Sans",
-    "Segoe UI",
-    ui-sans-serif,
-    system-ui,
-    -apple-system,
-    BlinkMacSystemFont,
-    sans-serif;
+  font-family: "Inter", "Segoe UI", ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
 }
 
 body {
@@ -68,45 +64,118 @@ input {
 }
 
 ::selection {
-  background: rgba(45, 212, 191, 0.28);
+  background: rgba(220, 38, 38, 0.3);
   color: white;
 }
 
+/* ─── Layout Shell ─── */
+
 .meet-shell {
-  width: min(1320px, calc(100vw - 32px));
+  width: min(1320px, calc(100vw - 48px));
   margin-inline: auto;
 }
 
-.glass-panel {
-  background: linear-gradient(180deg, rgba(255, 255, 255, 0.09), rgba(255, 255, 255, 0.05));
-  backdrop-filter: blur(20px);
-  box-shadow:
-    0 22px 80px rgba(2, 6, 23, 0.42),
-    inset 0 1px 0 rgba(255, 255, 255, 0.08);
+/* ─── Hero Typography ─── */
+
+.hero-serif {
+  font-family: "Playfair Display", Georgia, "Times New Roman", serif;
+  font-weight: 500;
+  letter-spacing: -0.02em;
+  line-height: 1.08;
 }
 
-.meet-dock {
-  background: rgba(3, 7, 18, 0.86);
-  backdrop-filter: blur(18px);
+.hero-sans {
+  font-family: "Inter", sans-serif;
+  font-weight: 300;
+  letter-spacing: -0.01em;
 }
+
+/* ─── Section Spacing ─── */
+
+.section-spacer {
+  padding-top: clamp(80px, 12vh, 160px);
+  padding-bottom: clamp(80px, 12vh, 160px);
+}
+
+.section-spacer-lg {
+  padding-top: clamp(120px, 16vh, 220px);
+  padding-bottom: clamp(120px, 16vh, 220px);
+}
+
+/* ─── Capsule Buttons ─── */
+
+.btn-capsule {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  border-radius: 9999px;
+  padding: 14px 32px;
+  font-size: 0.875rem;
+  font-weight: 500;
+  letter-spacing: 0.01em;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  cursor: pointer;
+  border: none;
+  outline: none;
+  text-decoration: none;
+}
+
+.btn-capsule-primary {
+  background: rgb(var(--text));
+  color: rgb(var(--surface));
+}
+
+.btn-capsule-primary:hover {
+  opacity: 0.85;
+  transform: translateY(-1px);
+}
+
+.btn-capsule-outline {
+  background: transparent;
+  color: rgb(var(--text));
+  border: 1px solid rgba(var(--text), 0.2);
+}
+
+.btn-capsule-outline:hover {
+  border-color: rgba(var(--text), 0.5);
+  background: rgba(var(--text), 0.05);
+}
+
+.btn-capsule-accent {
+  background: rgb(var(--accent));
+  color: white;
+}
+
+.btn-capsule-accent:hover {
+  opacity: 0.9;
+  transform: translateY(-1px);
+}
+
+/* ─── Subtle Ambient ─── */
 
 .resume-ambient {
   position: fixed;
   inset: 0;
-  background:
-    radial-gradient(circle at 14% 20%, rgba(45, 212, 191, 0.18), transparent 28%),
-    radial-gradient(circle at 80% 14%, rgba(34, 211, 238, 0.16), transparent 24%),
-    radial-gradient(circle at 68% 76%, rgba(74, 222, 128, 0.12), transparent 24%),
-    linear-gradient(180deg, #050816 0%, #09090b 100%);
+  background: radial-gradient(ellipse at 50% 0%, rgba(220, 38, 38, 0.04), transparent 50%),
+    radial-gradient(ellipse at 80% 100%, rgba(220, 38, 38, 0.02), transparent 40%),
+    rgb(var(--surface));
   pointer-events: none;
 }
 
-.resume-glass {
-  background: linear-gradient(180deg, rgba(255, 255, 255, 0.08), rgba(255, 255, 255, 0.04));
-  backdrop-filter: blur(28px);
-  box-shadow:
-    0 24px 90px rgba(2, 6, 23, 0.45),
-    inset 0 1px 0 rgba(255, 255, 255, 0.11);
+/* ─── Glass Panels (for auth forms) ─── */
+
+.glass-panel {
+  background: rgba(var(--panel), 0.6);
+  backdrop-filter: blur(24px);
+  box-shadow: 0 24px 80px rgba(0, 0, 0, 0.5), inset 0 1px 0 rgba(255, 255, 255, 0.05);
+}
+
+/* ─── Room Components (kept for interview pages) ─── */
+
+.meet-dock {
+  background: rgba(0, 0, 0, 0.9);
+  backdrop-filter: blur(18px);
 }
 
 .verifai-mesh {
@@ -118,19 +187,19 @@ input {
   content: "";
   position: absolute;
   inset: 0;
-  background:
-    radial-gradient(circle at top left, rgba(45, 212, 191, 0.18), transparent 25%),
-    radial-gradient(circle at bottom right, rgba(34, 211, 238, 0.14), transparent 22%);
+  background: radial-gradient(circle at top left, rgba(220, 38, 38, 0.1), transparent 25%),
+    radial-gradient(circle at bottom right, rgba(220, 38, 38, 0.06), transparent 22%);
   pointer-events: none;
 }
 
 .verifai-grid {
-  background-image:
-    linear-gradient(rgba(255, 255, 255, 0.05) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(255, 255, 255, 0.05) 1px, transparent 1px);
+  background-image: linear-gradient(rgba(255, 255, 255, 0.03) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255, 255, 255, 0.03) 1px, transparent 1px);
   background-size: 42px 42px;
   mask-image: linear-gradient(180deg, rgba(0, 0, 0, 0.85), transparent);
 }
+
+/* ─── Animations ─── */
 
 @keyframes roomFadeIn {
   from {
@@ -165,6 +234,33 @@ input {
   }
 }
 
+@keyframes fadeInUp {
+  from {
+    opacity: 0;
+    transform: translateY(30px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes scaleIn {
+  from {
+    opacity: 0;
+    transform: scale(0.95);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
 .room-fade-in {
   animation: roomFadeIn 420ms ease-out both;
 }
@@ -181,9 +277,23 @@ input {
   animation: roomRiseIn 520ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
 }
 
+.animate-fade-in-up {
+  animation: fadeInUp 0.8s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+.animate-fade-in {
+  animation: fadeIn 0.6s ease-out both;
+}
+
+.animate-scale-in {
+  animation: scaleIn 0.7s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+/* ─── Scrollbar ─── */
+
 .signal-scrollbar {
   scrollbar-width: thin;
-  scrollbar-color: rgba(45, 212, 191, 0.4) transparent;
+  scrollbar-color: rgba(220, 38, 38, 0.35) transparent;
 }
 
 .signal-scrollbar::-webkit-scrollbar {
@@ -191,6 +301,20 @@ input {
 }
 
 .signal-scrollbar::-webkit-scrollbar-thumb {
-  background: rgba(45, 212, 191, 0.35);
+  background: rgba(220, 38, 38, 0.3);
   border-radius: 999px;
+}
+
+/* ─── Dot Decorators (inspired by reference) ─── */
+
+.dot-marker {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  background: rgb(var(--text));
+  border-radius: 0;
+}
+
+.dot-marker-accent {
+  background: rgb(var(--accent));
 }

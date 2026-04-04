@@ -3,9 +3,9 @@ import "./globals.css";
 import { ThemeProvider } from "@/components/theme-provider";
 
 export const metadata: Metadata = {
-  title: "VerifAI",
+  title: "VerifAI — Interview Intelligence Platform",
   description:
-    "AI-powered interview and resume intelligence platform.",
+    "AI-powered interview lie detection, resume verification, and hiring intelligence for those who refuse to settle.",
 };
 
 export default function RootLayout({
