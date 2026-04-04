@@ -2,15 +2,11 @@
 
 import {
   Copy,
-  EllipsisVertical,
-  Info,
   Mic,
   MicOff,
   MonitorUp,
   PhoneOff,
-  SmilePlus,
 } from "lucide-react";
-import { ThemeToggle } from "@/components/theme-toggle";
 
 type ControlBarProps = {
   isMuted: boolean;
@@ -69,31 +65,10 @@ export function ControlBar({
               />
             )}
             <RoundButton
-              label="Meeting details"
-              active
-              onClick={onCopyLink}
-              icon={<Info className="h-5 w-5" />}
-              className="hidden sm:inline-flex"
-            />
-            <RoundButton
               label="Copy link"
               active
               onClick={onCopyLink}
               icon={<Copy className="h-5 w-5" />}
-            />
-            <RoundButton
-              label="Reactions"
-              active
-              onClick={() => undefined}
-              icon={<SmilePlus className="h-5 w-5" />}
-              className="hidden md:inline-flex"
-            />
-            <RoundButton
-              label="More options"
-              active
-              onClick={() => undefined}
-              icon={<EllipsisVertical className="h-5 w-5" />}
-              className="hidden md:inline-flex"
             />
             <button
               onClick={onLeave}
@@ -103,14 +78,6 @@ export function ControlBar({
               Leave
             </button>
           </div>
-
-          <div className="hidden min-w-[140px] justify-end lg:flex">
-            <ThemeToggle />
-          </div>
-        </div>
-
-        <div className="lg:hidden">
-          <ThemeToggle />
         </div>
       </div>
     </div>

@@ -219,6 +219,8 @@ function MeetTile({
   playbackMuted = false,
   cameraOff = false,
   mirrored = false,
+  fit = "cover",
+  clipContent = true,
   className = "",
 }: {
   stream?: MediaStream;
@@ -227,6 +229,8 @@ function MeetTile({
   playbackMuted?: boolean;
   cameraOff?: boolean;
   mirrored?: boolean;
+  fit?: "cover" | "contain";
+  clipContent?: boolean;
   className?: string;
 }) {
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -242,7 +246,7 @@ function MeetTile({
 
   return (
     <div
-      className={`relative flex items-center justify-center overflow-hidden rounded-xl bg-[#3c4043] ${className}`}
+      className={`relative flex items-center justify-center rounded-xl bg-[#3c4043] ${clipContent ? "overflow-hidden" : "overflow-visible"} ${className}`}
     >
       {!cameraOff && stream && (
         <video
@@ -250,7 +254,7 @@ function MeetTile({
           autoPlay
           playsInline
           muted={playbackMuted}
-          className={`absolute inset-0 h-full w-full object-cover ${mirrored ? "scale-x-[-1]" : ""}`}
+          className={`absolute inset-0 h-full w-full ${fit === "contain" ? "object-contain" : "object-cover"} ${mirrored ? "scale-x-[-1]" : ""}`}
         />
       )}
       {cameraOff && <Avatar name={name} />}
@@ -491,13 +495,13 @@ function AiSignalCard({ score }: { score: AiScoreState }) {
           : "Mostly natural spoken delivery";
 
   return (
-    <div className="meet-slide rounded-xl bg-[#2a2b2f] px-4 py-3" style={{ animationDelay: "20ms" }}>
+    <div className="meet-slide rounded-2xl bg-[#2a2b2f] px-5 py-4" style={{ animationDelay: "20ms" }}>
       <div className="flex items-start justify-between gap-3">
         <div>
-          <div className="text-[11px] uppercase tracking-[0.18em] text-white/45">
+          <div className="text-xs uppercase tracking-[0.2em] text-white/45">
             Live AI signal
           </div>
-          <div className="mt-1 text-2xl font-semibold text-white">
+          <div className="mt-1 text-3xl font-semibold text-white">
             {score.aiLikelihood === null ? "--" : `${score.aiLikelihood}%`}
           </div>
         </div>
@@ -513,8 +517,8 @@ function AiSignalCard({ score }: { score: AiScoreState }) {
         />
       </div>
 
-      <div className="mt-3 text-xs text-white/70">{verdictText}</div>
-      <div className="mt-2 text-[11px] leading-5 text-white/45">{score.detail}</div>
+      <div className="mt-4 text-sm text-white/78">{verdictText}</div>
+      <div className="mt-2 text-xs leading-6 text-white/50">{score.detail}</div>
 
       <div className="mt-3 flex items-center justify-between text-[11px] text-white/45">
         <span>{score.samplesAnalyzed} sample{score.samplesAnalyzed === 1 ? "" : "s"}</span>
@@ -534,26 +538,26 @@ function AiSignalCard({ score }: { score: AiScoreState }) {
 
 function TranscriptFeed({ transcripts }: { transcripts: AiTranscriptEntry[] }) {
   return (
-    <div className="meet-slide rounded-xl bg-[#2a2b2f] px-4 py-3" style={{ animationDelay: "40ms" }}>
+    <div className="meet-slide rounded-2xl bg-[#2a2b2f] px-5 py-4" style={{ animationDelay: "40ms" }}>
       <div className="flex items-center justify-between gap-3">
-        <div className="text-[11px] uppercase tracking-[0.18em] text-white/45">
+        <div className="text-xs uppercase tracking-[0.2em] text-white/45">
           Live transcript
         </div>
         <span className="text-[11px] text-white/35">{transcripts.length} snippet{transcripts.length === 1 ? "" : "s"}</span>
       </div>
 
-      <div className="mt-3 space-y-2">
+      <div className="mt-4 max-h-[360px] space-y-3 overflow-y-auto pr-1">
         {transcripts.length === 0 ? (
-          <div className="rounded-lg bg-white/[0.04] px-3 py-3 text-xs text-white/45">
+          <div className="rounded-xl bg-white/[0.04] px-4 py-4 text-sm text-white/45">
             Transcript snippets will appear here once candidate speech is captured.
           </div>
         ) : (
           [...transcripts].reverse().map((entry, index) => (
-            <div key={`${entry.createdAt}-${index}`} className="rounded-lg bg-white/[0.04] px-3 py-2.5">
+            <div key={`${entry.createdAt}-${index}`} className="rounded-xl bg-white/[0.04] px-4 py-3">
               <div className="text-[11px] text-white/35">
                 {new Date(entry.createdAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit", second: "2-digit" })}
               </div>
-              <div className="mt-1 text-xs leading-5 text-white/78">{entry.text}</div>
+              <div className="mt-1.5 text-sm leading-6 text-white/82">{entry.text}</div>
             </div>
           ))
         )}
@@ -592,7 +596,7 @@ export function RoomClient({ roomId }: { roomId: string }) {
   /* which feed the interviewer sees as main */
   const [interviewerMainView, setInterviewerMainView] = useState<
     "screen" | "camera"
-  >("screen");
+  >("camera");
 
   const socketRef = useRef<Socket | null>(null);
   const peersRef = useRef<PeerMap>({});
@@ -1058,7 +1062,7 @@ export function RoomClient({ roomId }: { roomId: string }) {
       }
     };
 
-    recorder.start(3000);
+    recorder.start(1500);
 
     return () => {
       recorder.ondataavailable = null;
@@ -1093,12 +1097,16 @@ export function RoomClient({ roomId }: { roomId: string }) {
   const hasScreenShare = !!candidateScreenParticipant;
 
   useEffect(() => {
-    if (!hasScreenShare) setInterviewerMainView("camera");
-    else
-      setInterviewerMainView((prev) =>
-        prev === "camera" && hasScreenShare ? "screen" : prev,
-      );
-  }, [hasScreenShare]);
+    setInterviewerMainView((prev) => {
+      if (prev === "screen" && !hasScreenShare) {
+        return "camera";
+      }
+      if (prev === "camera" && !candidateCameraParticipant && hasScreenShare) {
+        return "screen";
+      }
+      return prev;
+    });
+  }, [candidateCameraParticipant, hasScreenShare]);
 
   const toggleMute = () => {
     const t = cameraStreamRef.current?.getAudioTracks()[0];
@@ -1249,104 +1257,116 @@ export function RoomClient({ roomId }: { roomId: string }) {
         )}
 
         {/* ── Main stage — pb-[88px] keeps videos above the control bar ── */}
-        <main className="relative flex flex-1 gap-2 overflow-hidden px-2 pb-[88px]">
+        <main className="relative flex flex-1 gap-2 overflow-visible px-2 pb-[88px]">
           {/* ════════════════════════════════════
               INTERVIEWER VIEW
           ════════════════════════════════════ */}
           {selectedRole === "interviewer" && (
-            <div className="flex flex-1 gap-2">
-              {/* Main tile — cross-fades between screen and camera */}
-              <div className="relative flex-1">
-                {mainParticipant ? (
-                  <CrossFadeTile
-                    animKey={interviewerMainView}
-                    stream={mainParticipant.stream}
-                    name={mainName}
-                    muted={mainMuted}
-                    cameraOff={mainCameraOff}
-                    className="h-full"
-                  />
-                ) : (
-                  <WaitingPlaceholder
-                    message={
-                      !roomState.interviewStarted
-                        ? roomState.waitingFor === "candidate_screen"
-                          ? "Waiting for candidate to share their screen…"
-                          : "Waiting for candidate to join…"
-                        : "Waiting for candidate feed…"
-                    }
-                  />
-                )}
-
-                {/* Toggle pill — top-right of main tile, only when candidate is present */}
-                {(candidateScreenParticipant || candidateCameraParticipant) && (
-                  <div
-                    className="absolute right-3 top-3 z-10 meet-slide"
-                    style={{ animationDelay: "120ms" }}
-                  >
-                    <ViewToggle
-                      value={interviewerMainView}
-                      onChange={setInterviewerMainView}
-                      screenAvailable={!!candidateScreenParticipant}
+            <div className="grid flex-1 gap-3 xl:grid-cols-[minmax(0,1fr)_420px]">
+              <div className="grid min-h-0 gap-3 grid-rows-[180px_minmax(0,1fr)]">
+                <div className="grid gap-3 md:grid-cols-[240px_minmax(0,320px)_1fr]">
+                  <div className="meet-slide min-h-[180px]" style={{ animationDelay: "20ms" }}>
+                    <MeetTile
+                      stream={localStream ?? undefined}
+                      name={`${displayName || "You"} (you)`}
+                      muted={isMuted}
+                      playbackMuted
+                      cameraOff={false}
+                      mirrored
+                      className="h-full"
                     />
                   </div>
-                )}
-              </div>
 
-              {/* Right strip: candidate cam (top) + self cam (bottom) */}
-              <div className="flex w-[210px] flex-shrink-0 flex-col gap-2">
-                <AiSignalCard score={aiScore} />
-                <TranscriptFeed transcripts={aiTranscripts} />
+                  <div className="meet-slide min-h-[180px]" style={{ animationDelay: "40ms" }}>
+                    {candidateScreenParticipant ? (
+                      <button
+                        type="button"
+                        onClick={() => setInterviewerMainView("screen")}
+                        className="group relative h-full w-full text-left"
+                      >
+                        <MeetTile
+                          stream={candidateScreenParticipant.stream}
+                          name={`${mediaState[candidateScreenParticipant.peerId]?.name ?? "Candidate"} screen`}
+                          fit="contain"
+                          clipContent={false}
+                          className="h-full border border-white/10 bg-[#252629] transition duration-300 group-hover:border-white/25 group-hover:shadow-[0_12px_32px_rgba(0,0,0,0.28)]"
+                        />
+                        <div className="pointer-events-none absolute inset-x-0 top-0 flex justify-center pt-2">
+                          <span className="rounded-full bg-black/55 px-2.5 py-1 text-[11px] font-medium text-white/90 backdrop-blur-sm">
+                            Candidate screen
+                          </span>
+                        </div>
+                      </button>
+                    ) : (
+                      <div className="flex h-full items-center justify-center rounded-xl bg-[#3c4043] text-xs text-white/35">
+                        Waiting for screen share
+                      </div>
+                    )}
+                  </div>
 
-                <div
-                  className="meet-slide flex-1"
-                  style={{ animationDelay: "40ms" }}
-                >
-                  {secondaryCandidateParticipant ? (
-                    <button
-                      type="button"
-                      onClick={() =>
-                        setInterviewerMainView((prev) =>
-                          prev === "screen" ? "camera" : "screen",
-                        )
-                      }
-                      className="group relative h-full w-full text-left"
-                    >
-                      <MeetTile
-                        stream={secondaryCandidateParticipant.stream}
-                        name={secondaryCandidateName}
-                        muted={secondaryCandidateMuted}
-                        cameraOff={secondaryCandidateCameraOff}
-                        className="h-full transition duration-300 group-hover:scale-[1.01] group-hover:shadow-[0_12px_36px_rgba(0,0,0,0.35)]"
-                      />
-                      <div className="pointer-events-none absolute inset-x-0 top-0 flex justify-center pt-2">
-                        <span className="rounded-full bg-black/55 px-2.5 py-1 text-[11px] font-medium text-white/90 backdrop-blur-sm">
-                          Click to swap
+                  <div className="meet-slide min-h-[180px] rounded-xl bg-[#2a2b2f] px-4 py-3" style={{ animationDelay: "60ms" }}>
+                    <div className="text-[11px] uppercase tracking-[0.18em] text-white/45">
+                      Session signal
+                    </div>
+                    <div className="mt-3 grid gap-2 text-sm text-white/75">
+                      <div className="flex items-center justify-between rounded-lg bg-white/[0.04] px-3 py-2">
+                        <span>Interview</span>
+                        <span className={roomState.interviewStarted ? "text-emerald-300" : "text-amber-200"}>
+                          {roomState.interviewStarted ? "Live" : "Pending"}
                         </span>
                       </div>
-                    </button>
+                      <div className="flex items-center justify-between rounded-lg bg-white/[0.04] px-3 py-2">
+                        <span>Candidate screen</span>
+                        <span className={roomState.shareRequirementMet ? "text-emerald-300" : "text-amber-200"}>
+                          {roomState.shareRequirementMet ? "Verified" : "Missing"}
+                        </span>
+                      </div>
+                      <div className="flex items-center justify-between rounded-lg bg-white/[0.04] px-3 py-2">
+                        <span>Connection</span>
+                        <span className={socketConnected ? "text-emerald-300" : "text-amber-200"}>
+                          {socketConnected ? "Connected" : "Waiting"}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="relative min-h-0">
+                  {mainParticipant ? (
+                    <CrossFadeTile
+                      animKey={interviewerMainView}
+                      stream={mainParticipant.stream}
+                      name={mainName}
+                      muted={mainMuted}
+                      cameraOff={mainCameraOff}
+                      className="h-full min-h-[420px]"
+                    />
                   ) : (
-                    <div className="flex h-full items-center justify-center rounded-xl bg-[#3c4043] text-xs text-white/35">
-                      No candidate feed
+                    <WaitingPlaceholder
+                      message={
+                        !roomState.interviewStarted
+                          ? roomState.waitingFor === "candidate_screen"
+                            ? "Waiting for candidate to share their screen…"
+                            : "Waiting for candidate to join…"
+                          : "Waiting for candidate feed…"
+                      }
+                    />
+                  )}
+
+                  {secondaryCandidateParticipant && (
+                    <div className="pointer-events-none absolute right-4 top-4">
+                      <span className="rounded-full bg-black/55 px-3 py-1 text-[11px] font-medium text-white/90 backdrop-blur-sm">
+                        Click the small tile above to swap views
+                      </span>
                     </div>
                   )}
                 </div>
-
-                <div
-                  className="meet-slide flex-1"
-                  style={{ animationDelay: "80ms" }}
-                >
-                  <MeetTile
-                    stream={localStream ?? undefined}
-                    name={`${displayName || "You"} (you)`}
-                    muted={isMuted}
-                    playbackMuted
-                    cameraOff={false}
-                    mirrored
-                    className="h-full"
-                  />
-                </div>
               </div>
+
+              <aside className="grid min-h-0 gap-3 content-start">
+                <AiSignalCard score={aiScore} />
+                <TranscriptFeed transcripts={aiTranscripts} />
+              </aside>
             </div>
           )}
 
