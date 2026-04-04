@@ -85,15 +85,23 @@ export async function fetchJson<T>(
 }
 
 export async function fetchIceServers(token: string): Promise<IceServerConfig[]> {
-  const response = await fetchJson<{
-    ok: boolean;
-    iceServers: IceServerConfig[];
-  }>("/api/rtc/ice-servers", {
-    method: "GET",
-    headers: {
-      Authorization: `Bearer ${token}`,
-    },
-  });
+  const controller = new AbortController();
+  const timeoutId = window.setTimeout(() => controller.abort(), 1500);
 
-  return response.iceServers;
+  try {
+    const response = await fetchJson<{
+      ok: boolean;
+      iceServers: IceServerConfig[];
+    }>("/api/rtc/ice-servers", {
+      method: "GET",
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+      signal: controller.signal,
+    });
+
+    return response.iceServers;
+  } finally {
+    window.clearTimeout(timeoutId);
+  }
 }

@@ -74,10 +74,16 @@ type AiScoreState = {
     | "transcription_disabled"
     | "scoring_disabled";
   detail: string;
+  transcriptMode: "waiting" | "browser" | "deepgram";
 };
 type AiTranscriptEntry = {
   text: string;
   createdAt: number;
+};
+type AiTranscriptState = {
+  transcripts: AiTranscriptEntry[];
+  draft: string;
+  mode: "waiting" | "browser" | "deepgram";
 };
 
 const EMPTY_ROOM_STATE: RoomState = {
@@ -101,6 +107,12 @@ const EMPTY_AI_SCORE: AiScoreState = {
   updatedAt: null,
   status: "idle",
   detail: "Waiting for candidate audio.",
+  transcriptMode: "waiting",
+};
+const EMPTY_AI_TRANSCRIPTS: AiTranscriptState = {
+  transcripts: [],
+  draft: "",
+  mode: "waiting",
 };
 
 /* ─── pure helpers ─── */
@@ -151,6 +163,30 @@ function getAudioRecorderMimeType() {
 
   const options = ["audio/webm;codecs=opus", "audio/webm"];
   return options.find((option) => MediaRecorder.isTypeSupported(option)) ?? "";
+}
+function getSpeechRecognitionCtor() {
+  if (typeof window === "undefined") return null;
+  return (
+    (window as Window & { webkitSpeechRecognition?: unknown }).webkitSpeechRecognition ||
+    (window as Window & { SpeechRecognition?: unknown }).SpeechRecognition ||
+    null
+  ) as
+    | (new () => {
+        continuous: boolean;
+        interimResults: boolean;
+        lang: string;
+        onresult: ((event: {
+          resultIndex: number;
+          results: ArrayLike<ArrayLike<{ transcript: string }>> & {
+            [index: number]: ArrayLike<{ transcript: string }> & { isFinal?: boolean };
+          };
+        }) => void) | null;
+        onerror: (() => void) | null;
+        onend: (() => void) | null;
+        start: () => void;
+        stop: () => void;
+      })
+    | null;
 }
 function getStreamScore(stream?: MediaStream) {
   const t = stream?.getVideoTracks()[0];
@@ -536,17 +572,28 @@ function AiSignalCard({ score }: { score: AiScoreState }) {
   );
 }
 
-function TranscriptFeed({ transcripts }: { transcripts: AiTranscriptEntry[] }) {
+function TranscriptFeed({ state }: { state: AiTranscriptState }) {
+  const { transcripts, draft, mode } = state;
   return (
     <div className="meet-slide rounded-2xl bg-[#2a2b2f] px-5 py-4" style={{ animationDelay: "40ms" }}>
       <div className="flex items-center justify-between gap-3">
         <div className="text-xs uppercase tracking-[0.2em] text-white/45">
           Live transcript
         </div>
-        <span className="text-[11px] text-white/35">{transcripts.length} snippet{transcripts.length === 1 ? "" : "s"}</span>
+        <span className="text-[11px] text-white/35">
+          {mode === "browser" ? "Browser stream" : mode === "deepgram" ? "Deepgram" : "Waiting"}
+        </span>
       </div>
 
       <div className="mt-4 max-h-[360px] space-y-3 overflow-y-auto pr-1">
+        {draft && (
+          <div className="rounded-xl border border-emerald-400/20 bg-emerald-400/8 px-4 py-3">
+            <div className="text-[11px] uppercase tracking-[0.18em] text-emerald-200/70">
+              Streaming now
+            </div>
+            <div className="mt-1.5 text-sm leading-6 text-emerald-50">{draft}</div>
+          </div>
+        )}
         {transcripts.length === 0 ? (
           <div className="rounded-xl bg-white/[0.04] px-4 py-4 text-sm text-white/45">
             Transcript snippets will appear here once candidate speech is captured.
@@ -592,7 +639,7 @@ export function RoomClient({ roomId }: { roomId: string }) {
   const [now, setNow] = useState("--:--");
   const [currentRoomLink, setCurrentRoomLink] = useState("");
   const [aiScore, setAiScore] = useState<AiScoreState>(EMPTY_AI_SCORE);
-  const [aiTranscripts, setAiTranscripts] = useState<AiTranscriptEntry[]>([]);
+  const [aiTranscripts, setAiTranscripts] = useState<AiTranscriptState>(EMPTY_AI_TRANSCRIPTS);
   /* which feed the interviewer sees as main */
   const [interviewerMainView, setInterviewerMainView] = useState<
     "screen" | "camera"
@@ -607,6 +654,7 @@ export function RoomClient({ roomId }: { roomId: string }) {
   const publishedStreamsRef = useRef<MediaStream[]>([]);
   const iceServersRef = useRef<RTCIceServer[]>(buildFallbackIceServers());
   const isMutedRef = useRef(false);
+  const speechRecognitionSupported = useMemo(() => Boolean(getSpeechRecognitionCtor()), []);
   const pendingJoinShareStateRef = useRef({
     active: false,
     displaySurface: null as string | null,
@@ -741,7 +789,7 @@ export function RoomClient({ roomId }: { roomId: string }) {
     socketRef.current = null;
     setSocketConnected(false);
     setAiScore(EMPTY_AI_SCORE);
-    setAiTranscripts([]);
+    setAiTranscripts(EMPTY_AI_TRANSCRIPTS);
     syncKnownUsers([]);
     const next = { ...EMPTY_ROOM_STATE, roomId };
     setRoomState(next);
@@ -879,8 +927,12 @@ export function RoomClient({ roomId }: { roomId: string }) {
     });
     socket.on(
       "ai-transcript-update",
-      ({ transcripts }: { transcripts: AiTranscriptEntry[] }) => {
-        setAiTranscripts(transcripts);
+      ({ transcripts, draft, mode }: AiTranscriptState) => {
+        setAiTranscripts({
+          transcripts,
+          draft,
+          mode,
+        });
       },
     );
     socket.on("room-error", ({ message }) => setServerError(message));
@@ -1030,6 +1082,93 @@ export function RoomClient({ roomId }: { roomId: string }) {
       return;
     }
 
+    const SpeechRecognitionCtor = getSpeechRecognitionCtor();
+    const socket = socketRef.current;
+    const peerId = socket?.id;
+    if (!SpeechRecognitionCtor || !socket || !peerId) {
+      return;
+    }
+
+    const recognition = new SpeechRecognitionCtor();
+    recognition.continuous = true;
+    recognition.interimResults = true;
+    recognition.lang = "en-US";
+
+    let stopped = false;
+
+    recognition.onresult = (event) => {
+      let interimText = "";
+
+      for (let index = event.resultIndex; index < event.results.length; index += 1) {
+        const result = event.results[index];
+        const transcript = result?.[0]?.transcript?.trim();
+        if (!transcript) continue;
+
+        if (result.isFinal) {
+          socket.emit("candidate-live-transcript", {
+            roomId,
+            peerId,
+            text: transcript,
+            isFinal: true,
+          });
+        } else {
+          interimText += `${transcript} `;
+        }
+      }
+
+      socket.emit("candidate-live-transcript", {
+        roomId,
+        peerId,
+        text: interimText.trim(),
+        isFinal: false,
+      });
+    };
+
+    recognition.onerror = () => {
+      if (!stopped) {
+        setAiScore((current) => ({
+          ...current,
+          detail: "Browser live transcript is unavailable. Falling back to delayed transcription.",
+        }));
+      }
+    };
+
+    recognition.onend = () => {
+      if (!stopped && !isMutedRef.current) {
+        try {
+          recognition.start();
+        } catch {
+          // Browsers can reject immediate restarts after rapid stop/start.
+        }
+      }
+    };
+
+    try {
+      recognition.start();
+    } catch {
+      return;
+    }
+
+    return () => {
+      stopped = true;
+      recognition.onresult = null;
+      recognition.onerror = null;
+      recognition.onend = null;
+      recognition.stop();
+    };
+  }, [localStream, roomId, roomState.interviewStarted, selectedRole, socketConnected]);
+
+  useEffect(() => {
+    if (
+      selectedRole !== "candidate" ||
+      !localStream ||
+      !socketConnected ||
+      !roomState.interviewStarted ||
+      speechRecognitionSupported
+    ) {
+      return;
+    }
+
     const audioTrack = localStream.getAudioTracks()[0];
     const socket = socketRef.current;
     if (!audioTrack || !socket || typeof MediaRecorder === "undefined") {
@@ -1070,7 +1209,14 @@ export function RoomClient({ roomId }: { roomId: string }) {
         recorder.stop();
       }
     };
-  }, [localStream, roomId, roomState.interviewStarted, selectedRole, socketConnected]);
+  }, [
+    localStream,
+    roomId,
+    roomState.interviewStarted,
+    selectedRole,
+    socketConnected,
+    speechRecognitionSupported,
+  ]);
 
   useEffect(() => {
     return () => {
@@ -1365,7 +1511,7 @@ export function RoomClient({ roomId }: { roomId: string }) {
 
               <aside className="grid min-h-0 gap-3 content-start">
                 <AiSignalCard score={aiScore} />
-                <TranscriptFeed transcripts={aiTranscripts} />
+                <TranscriptFeed state={aiTranscripts} />
               </aside>
             </div>
           )}
