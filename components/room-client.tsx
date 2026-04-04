@@ -26,7 +26,14 @@ import {
 } from "@/lib/auth";
 
 type Role = AuthRole;
-type RemoteParticipant = { peerId: string; stream?: MediaStream; peer: Peer.Instance };
+type RemoteStreamKind = "camera" | "screen";
+type RemoteParticipant = {
+  peerId: string;
+  streamId: string;
+  kind: RemoteStreamKind;
+  stream?: MediaStream;
+  peer: Peer.Instance;
+};
 type PeerMap = Record<string, Peer.Instance>;
 type UserSnapshot = {
   peerId: string;
@@ -105,6 +112,17 @@ function buildTileLabel(user: { name: string; role: Role; shareActive: boolean }
   return user.shareActive ? `${user.name} · shared screen` : `${user.name} · ${roleLabel(user.role)}`;
 }
 
+function getRemoteStreamKind(
+  user: UserSnapshot | undefined,
+  existingCount: number,
+): RemoteStreamKind {
+  if (user?.role === "candidate" && user.shareActive && existingCount > 0) {
+    return "screen";
+  }
+
+  return "camera";
+}
+
 export function RoomClient({ roomId }: { roomId: string }) {
   const router = useRouter();
   const [session, setSession] = useState<AuthSession | null>(null);
@@ -130,7 +148,7 @@ export function RoomClient({ roomId }: { roomId: string }) {
   const knownUsersRef = useRef<Record<string, UserSnapshot>>({});
   const cameraStreamRef = useRef<MediaStream | null>(null);
   const screenStreamRef = useRef<MediaStream | null>(null);
-  const publishedStreamRef = useRef<MediaStream | null>(null);
+  const publishedStreamsRef = useRef<MediaStream[]>([]);
   const iceServersRef = useRef<RTCIceServer[]>(buildFallbackIceServers());
   const pendingJoinShareStateRef = useRef({ active: false, displaySurface: null as string | null });
   const isLeavingRef = useRef(false);
@@ -144,6 +162,14 @@ export function RoomClient({ roomId }: { roomId: string }) {
     if (count <= 4) return "md:grid-cols-2 xl:grid-cols-2";
     return "md:grid-cols-2 xl:grid-cols-3";
   }, [participants.length]);
+  const interviewerPeerId = useMemo(
+    () => Object.values(knownUsersRef.current).find((user) => user.role === "interviewer")?.peerId ?? null,
+    [mediaState],
+  );
+  const candidatePeerId = useMemo(
+    () => Object.values(knownUsersRef.current).find((user) => user.role === "candidate")?.peerId ?? null,
+    [mediaState],
+  );
 
   const syncKnownUsers = (users: UserSnapshot[]) => {
     const nextKnownUsers: Record<string, UserSnapshot> = {};
@@ -157,14 +183,14 @@ export function RoomClient({ roomId }: { roomId: string }) {
   const createPeer = (
     targetPeerId: string,
     callerId: string,
-    stream: MediaStream,
+    streams: MediaStream[],
     socket: Socket,
     initiator: boolean,
   ) => {
     const peer = new Peer({
       initiator,
       trickle: true,
-      stream,
+      streams,
       config: { iceServers: iceServersRef.current },
     });
 
@@ -175,14 +201,24 @@ export function RoomClient({ roomId }: { roomId: string }) {
     });
 
     peer.on("stream", (remoteStream) => {
+      const remoteUser = knownUsersRef.current[targetPeerId];
       setParticipants((current) => {
-        const existing = current.find((participant) => participant.peerId === targetPeerId);
-        if (existing) {
-          return current.map((participant) =>
-            participant.peerId === targetPeerId ? { ...participant, stream: remoteStream, peer } : participant,
+        const existingIndex = current.findIndex(
+          (participant) => participant.peerId === targetPeerId && participant.streamId === remoteStream.id,
+        );
+        const existingCount = current.filter((participant) => participant.peerId === targetPeerId).length;
+        const kind = getRemoteStreamKind(remoteUser, existingCount);
+
+        if (existingIndex >= 0) {
+          return current.map((participant, index) =>
+            index === existingIndex ? { ...participant, stream: remoteStream, peer, kind } : participant,
           );
         }
-        return [...current, { peerId: targetPeerId, stream: remoteStream, peer }];
+
+        return [
+          ...current,
+          { peerId: targetPeerId, streamId: remoteStream.id, stream: remoteStream, peer, kind },
+        ];
       });
     });
 
@@ -208,15 +244,15 @@ export function RoomClient({ roomId }: { roomId: string }) {
 
   const ensurePeerConnections = () => {
     const socket = socketRef.current;
-    const stream = publishedStreamRef.current;
-    if (!socket || !stream || !roomStateRef.current.interviewStarted) return;
+    const streams = publishedStreamsRef.current;
+    if (!socket || !streams.length || !roomStateRef.current.interviewStarted) return;
     const socketId = socket.id;
     if (!socketId) return;
 
     Object.values(knownUsersRef.current).forEach((user) => {
       if (user.peerId === socketId || peersRef.current[user.peerId]) return;
       const initiator = socketId.localeCompare(user.peerId) < 0;
-      peersRef.current[user.peerId] = createPeer(user.peerId, socketId, stream, socket, initiator);
+      peersRef.current[user.peerId] = createPeer(user.peerId, socketId, streams, socket, initiator);
     });
   };
 
@@ -253,16 +289,16 @@ export function RoomClient({ roomId }: { roomId: string }) {
     releaseRoomConnection();
     stopTracks(screenStreamRef.current);
     screenStreamRef.current = null;
-    publishedStreamRef.current = null;
-    setLocalStream(null);
+    publishedStreamsRef.current = cameraStreamRef.current ? [cameraStreamRef.current] : [];
+    setLocalStream(cameraStreamRef.current);
     setIsScreenSharing(false);
     setScreenShareError("Candidate screen sharing is mandatory. Share the entire screen again to rejoin.");
   };
 
-  const connectToRoom = (stream: MediaStream) => {
+  const connectToRoom = (streams: MediaStream[], previewStream: MediaStream) => {
     if (!selectedRole || !session?.token) return;
     releaseRoomConnection(false);
-    publishedStreamRef.current = stream;
+    publishedStreamsRef.current = streams;
 
     const socket = io(signalingServerUrl, {
       autoConnect: true,
@@ -314,11 +350,11 @@ export function RoomClient({ roomId }: { roomId: string }) {
 
     socket.on("offer", ({ from, signal }) => {
       const localSocket = socketRef.current;
-      const localStream = publishedStreamRef.current;
+      const localStreams = publishedStreamsRef.current;
       const socketId = localSocket?.id;
-      if (!localSocket || !localStream || !socketId) return;
+      if (!localSocket || !localStreams.length || !socketId) return;
       if (!peersRef.current[from]) {
-        peersRef.current[from] = createPeer(from, socketId, localStream, localSocket, false);
+        peersRef.current[from] = createPeer(from, socketId, localStreams, localSocket, false);
       }
       peersRef.current[from]?.signal(signal);
     });
@@ -391,7 +427,7 @@ export function RoomClient({ roomId }: { roomId: string }) {
       pendingJoinShareStateRef.current = { active: false, displaySurface: null };
       setLocalStream(media);
       setIsScreenSharing(false);
-      connectToRoom(media);
+      connectToRoom([media], media);
     } catch {
       setError("Unable to access camera or microphone. Check browser permissions and try again.");
     } finally {
@@ -428,22 +464,19 @@ export function RoomClient({ roomId }: { roomId: string }) {
       stopTracks(screenStreamRef.current);
       screenTrack.addEventListener("ended", handleCandidateShareEnded, { once: true });
 
-      const interviewStream = new MediaStream([screenTrack]);
+      const screenOnlyStream = new MediaStream([screenTrack]);
       const audioTrack = cameraStream.getAudioTracks()[0];
-      if (audioTrack) {
-        audioTrack.enabled = !isMuted;
-        interviewStream.addTrack(audioTrack);
-      }
+      if (audioTrack) audioTrack.enabled = !isMuted;
 
       screenStreamRef.current = screenStream;
       pendingJoinShareStateRef.current = { active: true, displaySurface };
-      publishedStreamRef.current = interviewStream;
-      setLocalStream(interviewStream);
+      publishedStreamsRef.current = [cameraStream, screenOnlyStream];
+      setLocalStream(cameraStream);
       setIsScreenSharing(true);
-      connectToRoom(interviewStream);
+      connectToRoom([cameraStream, screenOnlyStream], cameraStream);
     } catch {
       setIsScreenSharing(false);
-      setLocalStream(null);
+      setLocalStream(cameraStreamRef.current);
       setScreenShareError("The interview will start only after the candidate shares their entire screen.");
     } finally {
       setIsScreenSharePending(false);
@@ -490,7 +523,7 @@ export function RoomClient({ roomId }: { roomId: string }) {
       stopTracks(cameraStreamRef.current);
       screenStreamRef.current = null;
       cameraStreamRef.current = null;
-      publishedStreamRef.current = null;
+      publishedStreamsRef.current = [];
     };
   }, []);
 
@@ -536,13 +569,20 @@ export function RoomClient({ roomId }: { roomId: string }) {
     stopTracks(cameraStreamRef.current);
     screenStreamRef.current = null;
     cameraStreamRef.current = null;
-    publishedStreamRef.current = null;
+    publishedStreamsRef.current = [];
     router.push("/");
   };
 
   const participantCount = Object.keys(mediaState).length;
   const authMissing = !session;
   const candidateLocked = selectedRole === "candidate" && !isScreenSharing;
+  const stageParticipants = participants.filter((participant) => {
+    if (selectedRole === "interviewer") {
+      return participant.peerId === candidatePeerId;
+    }
+
+    return participant.peerId === interviewerPeerId && participant.kind === "camera";
+  });
   const statusCopy =
     roomState.waitingFor === "candidate"
       ? "Waiting for a candidate to join."
@@ -593,7 +633,7 @@ export function RoomClient({ roomId }: { roomId: string }) {
         <div className="mx-auto grid max-w-7xl gap-4 xl:grid-cols-[minmax(0,1fr)_328px]">
           <section className="relative min-h-[calc(100vh-180px)] overflow-hidden rounded-[28px] bg-[#161718] p-3 sm:p-4">
             <div className={`grid h-full gap-3 ${gridClassName}`}>
-              {participants.length === 0 ? (
+              {stageParticipants.length === 0 ? (
                 <div className="flex min-h-[420px] items-center justify-center rounded-[24px] bg-[#2b2c2f] text-center text-white/68">
                   <div>
                     <p className="text-lg">{roomState.interviewStarted ? "Waiting for media" : "Interview is gated"}</p>
@@ -601,16 +641,22 @@ export function RoomClient({ roomId }: { roomId: string }) {
                   </div>
                 </div>
               ) : (
-                participants.map((participant) => {
+                stageParticipants.map((participant) => {
                   const participantState = mediaState[participant.peerId];
+                  const label =
+                    participant.kind === "screen"
+                      ? `${participantState?.name ?? "Candidate"} · screen`
+                      : participantState
+                        ? buildTileLabel(participantState)
+                        : "Participant";
                   return (
                     <VideoTile
-                      key={participant.peerId}
-                      label={participantState ? buildTileLabel(participantState) : "Participant"}
+                      key={`${participant.peerId}-${participant.streamId}`}
+                      label={label}
                       stream={participant.stream}
-                      isMuted={participantState?.muted}
-                      isCameraOff={participantState?.cameraOff}
-                      priority={participants.length === 1}
+                      isMuted={participant.kind === "camera" ? participantState?.muted : false}
+                      isCameraOff={participant.kind === "camera" ? participantState?.cameraOff : false}
+                      priority={stageParticipants.length === 1}
                     />
                   );
                 })
@@ -676,11 +722,11 @@ export function RoomClient({ roomId }: { roomId: string }) {
                 </div>
               </div>
               <VideoTile
-                label={selectedRole === "candidate" ? (isScreenSharing ? "Your shared screen" : "Full screen required") : "Your camera"}
+                label={selectedRole === "candidate" ? "Your camera" : "Your camera"}
                 stream={localStream ?? undefined}
                 isMuted={isMuted}
-                isCameraOff={selectedRole === "candidate" ? !isScreenSharing : false}
-                mirrored={selectedRole === "interviewer"}
+                isCameraOff={false}
+                mirrored
                 compact
                 className="min-h-[240px] sm:min-h-[300px]"
               />
