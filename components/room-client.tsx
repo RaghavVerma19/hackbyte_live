@@ -719,6 +719,16 @@ function AiSignalCard({
 
 function TranscriptFeed({ state }: { state: AiTranscriptState }) {
   const { transcripts, draft, mode } = state;
+  const scrollRef = useRef<HTMLDivElement | null>(null);
+  const committedText = transcripts.map((entry) => entry.text).join(" ").trim();
+  const liveText = [committedText, draft].filter(Boolean).join(" ").trim();
+
+  useEffect(() => {
+    const node = scrollRef.current;
+    if (!node) return;
+    node.scrollTop = node.scrollHeight;
+  }, [committedText, draft]);
+
   return (
     <div className="meet-slide rounded-2xl bg-[#2a2b2f] px-5 py-4" style={{ animationDelay: "40ms" }}>
       <div className="flex items-center justify-between gap-3">
@@ -730,28 +740,29 @@ function TranscriptFeed({ state }: { state: AiTranscriptState }) {
         </span>
       </div>
 
-      <div className="mt-4 max-h-[360px] space-y-3 overflow-y-auto pr-1">
-        {draft && (
-          <div className="rounded-xl border border-emerald-400/20 bg-emerald-400/8 px-4 py-3">
-            <div className="text-[11px] uppercase tracking-[0.18em] text-emerald-200/70">
-              Streaming now
+      <div
+        ref={scrollRef}
+        className="mt-4 max-h-[360px] overflow-y-auto rounded-xl bg-white/[0.04] px-4 py-4 pr-2"
+      >
+        {liveText ? (
+          <>
+            <div className="text-[11px] uppercase tracking-[0.18em] text-white/35">
+              {draft ? "Streaming paragraph" : "Transcript paragraph"}
             </div>
-            <div className="mt-1.5 text-sm leading-6 text-emerald-50">{draft}</div>
-          </div>
-        )}
-        {transcripts.length === 0 ? (
-          <div className="rounded-xl bg-white/[0.04] px-4 py-4 text-sm text-white/45">
-            Transcript snippets will appear here once candidate speech is captured.
-          </div>
+            <div className="mt-2 whitespace-pre-wrap text-sm leading-7 text-white/82">
+              {committedText}
+              {draft ? (
+                <>
+                  {committedText ? " " : ""}
+                  <span className="text-emerald-100">{draft}</span>
+                </>
+              ) : null}
+            </div>
+          </>
         ) : (
-          [...transcripts].reverse().map((entry, index) => (
-            <div key={`${entry.createdAt}-${index}`} className="rounded-xl bg-white/[0.04] px-4 py-3">
-              <div className="text-[11px] text-white/35">
-                {new Date(entry.createdAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit", second: "2-digit" })}
-              </div>
-              <div className="mt-1.5 text-sm leading-6 text-white/82">{entry.text}</div>
-            </div>
-          ))
+          <div className="text-sm text-white/45">
+            Transcript will keep appending here as the candidate speaks.
+          </div>
         )}
       </div>
     </div>
