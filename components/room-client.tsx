@@ -913,6 +913,10 @@ export function RoomClient({ roomId }: { roomId: string }) {
     interviewerMainView === "screen"
       ? candidateScreenParticipant
       : candidateCameraParticipant;
+  const secondaryCandidateParticipant =
+    interviewerMainView === "screen"
+      ? candidateCameraParticipant
+      : candidateScreenParticipant;
   const mainMuted =
     interviewerMainView === "camera"
       ? (mediaState[mainParticipant?.peerId ?? ""]?.muted ?? false)
@@ -925,6 +929,18 @@ export function RoomClient({ roomId }: { roomId: string }) {
     interviewerMainView === "screen"
       ? `${mediaState[mainParticipant?.peerId ?? ""]?.name ?? "Candidate"}'s screen`
       : (mediaState[mainParticipant?.peerId ?? ""]?.name ?? "Candidate");
+  const secondaryCandidateMuted =
+    interviewerMainView === "camera"
+      ? false
+      : (mediaState[secondaryCandidateParticipant?.peerId ?? ""]?.muted ?? false);
+  const secondaryCandidateCameraOff =
+    interviewerMainView === "camera"
+      ? false
+      : (mediaState[secondaryCandidateParticipant?.peerId ?? ""]?.cameraOff ?? false);
+  const secondaryCandidateName =
+    interviewerMainView === "camera"
+      ? `${mediaState[secondaryCandidateParticipant?.peerId ?? ""]?.name ?? "Candidate"}'s screen`
+      : (mediaState[secondaryCandidateParticipant?.peerId ?? ""]?.name ?? "Candidate");
 
   /* ═══════════════════════════════════════════════════════════════
      RENDER
@@ -1049,21 +1065,29 @@ export function RoomClient({ roomId }: { roomId: string }) {
                   className="meet-slide flex-1"
                   style={{ animationDelay: "40ms" }}
                 >
-                  {candidateCameraParticipant ? (
-                    <MeetTile
-                      stream={candidateCameraParticipant.stream}
-                      name={
-                        mediaState[candidateCameraParticipant.peerId]?.name ??
-                        "Candidate"
+                  {secondaryCandidateParticipant ? (
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setInterviewerMainView((prev) =>
+                          prev === "screen" ? "camera" : "screen",
+                        )
                       }
-                      muted={
-                        mediaState[candidateCameraParticipant.peerId]?.muted
-                      }
-                      cameraOff={
-                        mediaState[candidateCameraParticipant.peerId]?.cameraOff
-                      }
-                      className="h-full"
-                    />
+                      className="group relative h-full w-full text-left"
+                    >
+                      <MeetTile
+                        stream={secondaryCandidateParticipant.stream}
+                        name={secondaryCandidateName}
+                        muted={secondaryCandidateMuted}
+                        cameraOff={secondaryCandidateCameraOff}
+                        className="h-full transition duration-300 group-hover:scale-[1.01] group-hover:shadow-[0_12px_36px_rgba(0,0,0,0.35)]"
+                      />
+                      <div className="pointer-events-none absolute inset-x-0 top-0 flex justify-center pt-2">
+                        <span className="rounded-full bg-black/55 px-2.5 py-1 text-[11px] font-medium text-white/90 backdrop-blur-sm">
+                          Click to swap
+                        </span>
+                      </div>
+                    </button>
                   ) : (
                     <div className="flex h-full items-center justify-center rounded-xl bg-[#3c4043] text-xs text-white/35">
                       No candidate feed
