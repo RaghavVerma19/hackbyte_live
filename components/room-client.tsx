@@ -160,6 +160,31 @@ const FALLBACK_DELTA_THRESHOLD = 0.0012;
 const FALLBACK_CONSECUTIVE_FRAMES = 3;
 const BLINK_THRESHOLD = 0.2;
 const EYE_ANALYSIS_INTERVAL_MS = 10000;
+const MAX_VIDEO_BITRATE_KBPS = 500;
+const PREFERRED_CAMERA_CONSTRAINTS: MediaStreamConstraints = {
+  audio: {
+    echoCancellation: true,
+    noiseSuppression: true,
+    autoGainControl: true,
+  },
+  video: {
+    width: { min: 320, ideal: 640, max: 1280 },
+    height: { min: 240, ideal: 480, max: 720 },
+    frameRate: { ideal: 24, max: 30 },
+  },
+};
+const FALLBACK_CAMERA_CONSTRAINTS: MediaStreamConstraints = {
+  audio: {
+    echoCancellation: true,
+    noiseSuppression: true,
+    autoGainControl: true,
+  },
+  video: {
+    width: { ideal: 640, max: 960 },
+    height: { ideal: 480, max: 540 },
+    frameRate: { ideal: 20, max: 24 },
+  },
+};
 
 /* ─── pure helpers ─── */
 function getSignalingServerUrl() {
@@ -244,6 +269,23 @@ function getDistance(
   const dx = pointA.x - pointB.x;
   const dy = pointA.y - pointB.y;
   return Math.sqrt(dx * dx + dy * dy);
+}
+function limitVideoBitrateInSdp(sdp: string) {
+  if (!sdp.includes("m=video")) {
+    return sdp;
+  }
+
+  if (
+    sdp.includes(`b=AS:${MAX_VIDEO_BITRATE_KBPS}`) ||
+    sdp.includes(`b=TIAS:${MAX_VIDEO_BITRATE_KBPS * 1000}`)
+  ) {
+    return sdp;
+  }
+
+  return sdp.replace(
+    /(a=mid:video\r\n)/g,
+    `$1b=AS:${MAX_VIDEO_BITRATE_KBPS}\r\nb=TIAS:${MAX_VIDEO_BITRATE_KBPS * 1000}\r\n`,
+  );
 }
 function loadScriptOnce(src: string) {
   return new Promise<void>((resolve, reject) => {
@@ -878,6 +920,7 @@ export function RoomClient({ roomId }: { roomId: string }) {
       trickle: true,
       streams,
       config: { iceServers: iceServersRef.current },
+      sdpTransform: limitVideoBitrateInSdp,
     });
     peer.on("signal", (sig) => {
       const s = sig as { type?: string; candidate?: unknown };
@@ -976,18 +1019,16 @@ export function RoomClient({ roomId }: { roomId: string }) {
     const ex = cameraStreamRef.current;
     if (ex && ex.getTracks().filter((t) => t.readyState === "live").length)
       return ex;
-    const m = await navigator.mediaDevices.getUserMedia({
-      audio: {
-        echoCancellation: true,
-        noiseSuppression: true,
-        autoGainControl: true,
-      },
-      video: {
-        width: { ideal: 1280 },
-        height: { ideal: 720 },
-        frameRate: { ideal: 30, max: 60 },
-      },
-    });
+    let m: MediaStream;
+    try {
+      m = await navigator.mediaDevices.getUserMedia(PREFERRED_CAMERA_CONSTRAINTS);
+    } catch {
+      m = await navigator.mediaDevices.getUserMedia(FALLBACK_CAMERA_CONSTRAINTS);
+    }
+    const videoTrack = m.getVideoTracks()[0];
+    if (videoTrack) {
+      videoTrack.contentHint = "motion";
+    }
     cameraStreamRef.current = m;
     return m;
   };
@@ -1179,6 +1220,7 @@ export function RoomClient({ roomId }: { roomId: string }) {
       });
       const screenTrack = screen.getVideoTracks()[0];
       if (!screenTrack) throw new Error("No display track.");
+      screenTrack.contentHint = "detail";
       const surface = screenTrack.getSettings().displaySurface ?? null;
       if (surface !== "monitor") {
         stopTracks(screen);
