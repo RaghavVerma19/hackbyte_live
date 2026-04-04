@@ -58,6 +58,12 @@ type RoomState = {
   waitingFor: string;
   participantCount: number;
 };
+type AiScoreState = {
+  aiLikelihood: number | null;
+  confidence: "idle" | "low" | "medium" | "high";
+  samplesAnalyzed: number;
+  updatedAt: number | null;
+};
 
 const EMPTY_ROOM_STATE: RoomState = {
   roomId: "",
@@ -70,6 +76,12 @@ const EMPTY_ROOM_STATE: RoomState = {
   activeShareSurface: null,
   waitingFor: "candidate",
   participantCount: 0,
+};
+const EMPTY_AI_SCORE: AiScoreState = {
+  aiLikelihood: null,
+  confidence: "idle",
+  samplesAnalyzed: 0,
+  updatedAt: null,
 };
 
 /* ─── pure helpers ─── */
@@ -103,6 +115,23 @@ function formatClock(d: Date) {
 }
 function stopTracks(s: MediaStream | null) {
   s?.getTracks().forEach((t) => t.stop());
+}
+function arrayBufferToBase64(buffer: ArrayBuffer) {
+  let binary = "";
+  const bytes = new Uint8Array(buffer);
+  const chunkSize = 0x8000;
+
+  for (let index = 0; index < bytes.length; index += chunkSize) {
+    binary += String.fromCharCode(...bytes.subarray(index, index + chunkSize));
+  }
+
+  return btoa(binary);
+}
+function getAudioRecorderMimeType() {
+  if (typeof MediaRecorder === "undefined") return "";
+
+  const options = ["audio/webm;codecs=opus", "audio/webm"];
+  return options.find((option) => MediaRecorder.isTypeSupported(option)) ?? "";
 }
 function getStreamScore(stream?: MediaStream) {
   const t = stream?.getVideoTracks()[0];
@@ -398,6 +427,58 @@ function WaitingPlaceholder({ message }: { message: string }) {
   );
 }
 
+function AiSignalCard({ score }: { score: AiScoreState }) {
+  const percentage = score.aiLikelihood ?? 0;
+  const tone =
+    percentage >= 70
+      ? {
+          label: "High",
+          accent: "bg-red-400",
+          text: "text-red-200",
+        }
+      : percentage >= 40
+        ? {
+            label: "Medium",
+            accent: "bg-amber-300",
+            text: "text-amber-100",
+          }
+        : {
+            label: "Low",
+            accent: "bg-emerald-400",
+            text: "text-emerald-200",
+          };
+
+  return (
+    <div className="meet-slide rounded-xl bg-[#2a2b2f] px-4 py-3" style={{ animationDelay: "20ms" }}>
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <div className="text-[11px] uppercase tracking-[0.18em] text-white/45">
+            Live AI signal
+          </div>
+          <div className="mt-1 text-2xl font-semibold text-white">
+            {score.aiLikelihood === null ? "--" : `${score.aiLikelihood}%`}
+          </div>
+        </div>
+        <span className={`rounded-full bg-white/8 px-2.5 py-1 text-[11px] font-medium ${tone.text}`}>
+          {score.aiLikelihood === null ? "Listening" : tone.label}
+        </span>
+      </div>
+
+      <div className="mt-3 h-2 overflow-hidden rounded-full bg-white/8">
+        <div
+          className={`h-full rounded-full transition-all duration-500 ${tone.accent}`}
+          style={{ width: `${percentage}%` }}
+        />
+      </div>
+
+      <div className="mt-3 flex items-center justify-between text-[11px] text-white/45">
+        <span>{score.samplesAnalyzed} sample{score.samplesAnalyzed === 1 ? "" : "s"}</span>
+        <span className="capitalize">{score.confidence}</span>
+      </div>
+    </div>
+  );
+}
+
 /* ══════════════════════════════════════════════════════════════════
    ROOM CLIENT
 ══════════════════════════════════════════════════════════════════ */
@@ -423,6 +504,7 @@ export function RoomClient({ roomId }: { roomId: string }) {
   const [copied, setCopied] = useState(false);
   const [now, setNow] = useState("--:--");
   const [currentRoomLink, setCurrentRoomLink] = useState("");
+  const [aiScore, setAiScore] = useState<AiScoreState>(EMPTY_AI_SCORE);
   /* which feed the interviewer sees as main */
   const [interviewerMainView, setInterviewerMainView] = useState<
     "screen" | "camera"
@@ -436,6 +518,7 @@ export function RoomClient({ roomId }: { roomId: string }) {
   const screenStreamRef = useRef<MediaStream | null>(null);
   const publishedStreamsRef = useRef<MediaStream[]>([]);
   const iceServersRef = useRef<RTCIceServer[]>(buildFallbackIceServers());
+  const isMutedRef = useRef(false);
   const pendingJoinShareStateRef = useRef({
     active: false,
     displaySurface: null as string | null,
@@ -569,6 +652,7 @@ export function RoomClient({ roomId }: { roomId: string }) {
     socket?.disconnect();
     socketRef.current = null;
     setSocketConnected(false);
+    setAiScore(EMPTY_AI_SCORE);
     syncKnownUsers([]);
     const next = { ...EMPTY_ROOM_STATE, roomId };
     setRoomState(next);
@@ -701,6 +785,9 @@ export function RoomClient({ roomId }: { roomId: string }) {
         Object.values(knownUsersRef.current).filter((u) => u.peerId !== peerId),
       );
     });
+    socket.on("ai-score-update", (nextAiScore: AiScoreState) => {
+      setAiScore(nextAiScore);
+    });
     socket.on("room-error", ({ message }) => setServerError(message));
     socket.on("disconnect", () => setSocketConnected(false));
     socket.on("connect_error", (e) => {
@@ -813,6 +900,10 @@ export function RoomClient({ roomId }: { roomId: string }) {
 
   /* ── effects ── */
   useEffect(() => {
+    isMutedRef.current = isMuted;
+  }, [isMuted]);
+
+  useEffect(() => {
     const s = readSession();
     if (!s) {
       router.replace("/login");
@@ -833,6 +924,58 @@ export function RoomClient({ roomId }: { roomId: string }) {
     if (socketRef.current || isSessionPending || localStream) return;
     void startInterviewerSession();
   }, [displayName, isSessionPending, localStream, selectedRole]);
+
+  useEffect(() => {
+    if (
+      selectedRole !== "candidate" ||
+      !localStream ||
+      !socketConnected ||
+      !roomState.interviewStarted
+    ) {
+      return;
+    }
+
+    const audioTrack = localStream.getAudioTracks()[0];
+    const socket = socketRef.current;
+    if (!audioTrack || !socket || typeof MediaRecorder === "undefined") {
+      return;
+    }
+
+    const mimeType = getAudioRecorderMimeType();
+    const audioStream = new MediaStream([audioTrack]);
+    const recorder = mimeType
+      ? new MediaRecorder(audioStream, { mimeType })
+      : new MediaRecorder(audioStream);
+
+    recorder.ondataavailable = async (event) => {
+      if (!event.data.size || isMutedRef.current) return;
+
+      const activeSocket = socketRef.current;
+      const peerId = activeSocket?.id;
+      if (!activeSocket || !peerId || activeSocket.disconnected) return;
+
+      try {
+        const audioBase64 = arrayBufferToBase64(await event.data.arrayBuffer());
+        activeSocket.emit("candidate-audio-chunk", {
+          roomId,
+          peerId,
+          mimeType: event.data.type || mimeType || "audio/webm",
+          audioBase64,
+        });
+      } catch (transcriptionError) {
+        console.error("Hidden transcription upload failed:", transcriptionError);
+      }
+    };
+
+    recorder.start(8000);
+
+    return () => {
+      recorder.ondataavailable = null;
+      if (recorder.state !== "inactive") {
+        recorder.stop();
+      }
+    };
+  }, [localStream, roomId, roomState.interviewStarted, selectedRole, socketConnected]);
 
   useEffect(() => {
     return () => {
@@ -1061,6 +1204,8 @@ export function RoomClient({ roomId }: { roomId: string }) {
 
               {/* Right strip: candidate cam (top) + self cam (bottom) */}
               <div className="flex w-[210px] flex-shrink-0 flex-col gap-2">
+                <AiSignalCard score={aiScore} />
+
                 <div
                   className="meet-slide flex-1"
                   style={{ animationDelay: "40ms" }}
