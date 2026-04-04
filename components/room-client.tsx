@@ -1088,73 +1088,82 @@ export function RoomClient({ roomId }: { roomId: string }) {
       return;
     }
 
-    const recognition = new SpeechRecognitionCtor();
-    recognition.continuous = true;
-    recognition.interimResults = true;
-    recognition.lang = "en-US";
-
     let stopped = false;
     let restartTimer: number | null = null;
+    let recognition: InstanceType<NonNullable<ReturnType<typeof getSpeechRecognitionCtor>>> | null = null;
+    let lastFinalTranscript = "";
 
-    recognition.onresult = (event) => {
-      let interimText = "";
+    const startRecognition = () => {
+      if (stopped) return;
 
-      for (let index = event.resultIndex; index < event.results.length; index += 1) {
-        const result = event.results[index];
-        const transcript = result?.[0]?.transcript?.trim();
-        if (!transcript) continue;
+      recognition = new SpeechRecognitionCtor();
+      recognition.continuous = true;
+      recognition.interimResults = true;
+      recognition.lang = "en-US";
 
-        if (result.isFinal) {
-          socket.emit("candidate-live-transcript", {
-            roomId,
-            peerId,
-            text: transcript,
-            isFinal: true,
-          });
-        } else {
-          interimText += `${transcript} `;
-        }
-      }
+      recognition.onresult = (event) => {
+        let interimText = "";
 
-      socket.emit("candidate-live-transcript", {
-        roomId,
-        peerId,
-        text: interimText.trim(),
-        isFinal: false,
-      });
-    };
+        for (let index = event.resultIndex; index < event.results.length; index += 1) {
+          const result = event.results[index];
+          const transcript = result?.[0]?.transcript?.trim();
+          if (!transcript) continue;
 
-    recognition.onerror = () => {
-      // Keep the recorder fallback active even if browser speech recognition is unreliable.
-    };
-
-    recognition.onend = () => {
-      if (!stopped && !isMutedRef.current) {
-        restartTimer = window.setTimeout(() => {
-          try {
-            recognition.start();
-          } catch {
-            // Browsers can reject immediate restarts after rapid stop/start.
+          if (result.isFinal) {
+            if (transcript !== lastFinalTranscript) {
+              lastFinalTranscript = transcript;
+              socket.emit("candidate-live-transcript", {
+                roomId,
+                peerId,
+                text: transcript,
+                isFinal: true,
+              });
+            }
+          } else {
+            interimText += `${transcript} `;
           }
-        }, 250);
+        }
+
+        socket.emit("candidate-live-transcript", {
+          roomId,
+          peerId,
+          text: interimText.trim(),
+          isFinal: false,
+        });
+      };
+
+      recognition.onerror = () => {
+        // Keep the recorder fallback active even if browser speech recognition is unreliable.
+      };
+
+      recognition.onend = () => {
+        if (!stopped && !isMutedRef.current) {
+          restartTimer = window.setTimeout(() => {
+            startRecognition();
+          }, 300);
+        }
+      };
+
+      try {
+        recognition.start();
+      } catch {
+        // Let the recorder fallback continue even if browser recognition refuses to start.
       }
     };
 
-    try {
-      recognition.start();
-    } catch {
-      return;
-    }
+    startRecognition();
 
     return () => {
       stopped = true;
-      recognition.onresult = null;
-      recognition.onerror = null;
-      recognition.onend = null;
+      if (recognition) {
+        recognition.onresult = null;
+        recognition.onerror = null;
+        recognition.onend = null;
+        recognition.stop();
+      }
       if (restartTimer) {
         window.clearTimeout(restartTimer);
       }
-      recognition.stop();
     };
   }, [localStream, roomId, roomState.interviewStarted, selectedRole, socketConnected]);
 
@@ -1422,28 +1431,34 @@ export function RoomClient({ roomId }: { roomId: string }) {
                   </div>
 
                   <div className="meet-slide min-h-[180px]" style={{ animationDelay: "40ms" }}>
-                    {candidateScreenParticipant ? (
+                    {secondaryCandidateParticipant ? (
                       <button
                         type="button"
-                        onClick={() => setInterviewerMainView("screen")}
+                        onClick={() =>
+                          setInterviewerMainView((prev) =>
+                            prev === "screen" ? "camera" : "screen",
+                          )
+                        }
                         className="group relative h-full w-full text-left"
                       >
                         <MeetTile
-                          stream={candidateScreenParticipant.stream}
-                          name={`${mediaState[candidateScreenParticipant.peerId]?.name ?? "Candidate"} screen`}
-                          fit="contain"
-                          clipContent={false}
+                          stream={secondaryCandidateParticipant.stream}
+                          name={secondaryCandidateName}
+                          muted={secondaryCandidateMuted}
+                          cameraOff={secondaryCandidateCameraOff}
+                          fit={interviewerMainView === "screen" ? "cover" : "contain"}
+                          clipContent={interviewerMainView === "screen"}
                           className="h-full border border-white/10 bg-[#252629] transition duration-300 group-hover:border-white/25 group-hover:shadow-[0_12px_32px_rgba(0,0,0,0.28)]"
                         />
                         <div className="pointer-events-none absolute inset-x-0 top-0 flex justify-center pt-2">
                           <span className="rounded-full bg-black/55 px-2.5 py-1 text-[11px] font-medium text-white/90 backdrop-blur-sm">
-                            Candidate screen
+                            Click to swap
                           </span>
                         </div>
                       </button>
                     ) : (
                       <div className="flex h-full items-center justify-center rounded-xl bg-[#3c4043] text-xs text-white/35">
-                        Waiting for screen share
+                        Waiting for alternate feed
                       </div>
                     )}
                   </div>
@@ -1477,11 +1492,13 @@ export function RoomClient({ roomId }: { roomId: string }) {
 
                 <div className="relative min-h-0">
                   {mainParticipant ? (
-                    <CrossFadeTile
-                      animKey={interviewerMainView}
+                    <MeetTile
+                      key={`${mainParticipant.streamId}-${interviewerMainView}`}
                       stream={mainParticipant.stream}
                       name={mainName}
                       muted={mainMuted}
+                      fit={interviewerMainView === "screen" ? "contain" : "cover"}
+                      clipContent={interviewerMainView !== "screen"}
                       cameraOff={mainCameraOff}
                       className="h-full min-h-[420px]"
                     />
