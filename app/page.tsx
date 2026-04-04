@@ -5,6 +5,7 @@ import type { Route } from "next";
 import { useRouter } from "next/navigation";
 import {
   ArrowRight,
+  FileSearch,
   Keyboard,
   LogOut,
   Video,
@@ -110,12 +111,21 @@ export default function HomePage() {
 
           <div className="mt-9 flex flex-col gap-3 sm:flex-row sm:justify-center">
             {session.user.role === "interviewer" && (
-              <button
-                onClick={createMeeting}
-                className="inline-flex h-12 items-center justify-center gap-2 rounded-full bg-accent px-6 text-sm font-medium text-white transition hover:bg-accent/90"
-              >
-                New interview
-              </button>
+              <>
+                <button
+                  onClick={createMeeting}
+                  className="inline-flex h-12 items-center justify-center gap-2 rounded-full bg-accent px-6 text-sm font-medium text-white transition hover:bg-accent/90"
+                >
+                  New interview
+                </button>
+                <button
+                  onClick={() => router.push("/upload")}
+                  className="inline-flex h-12 items-center justify-center gap-2 rounded-full border border-line bg-panel px-6 text-sm font-medium text-text transition hover:border-accent/30 hover:text-accent"
+                >
+                  <FileSearch className="h-4 w-4" />
+                  Resume review
+                </button>
+              </>
             )}
 
             <form

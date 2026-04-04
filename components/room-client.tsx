@@ -1257,7 +1257,7 @@ export function RoomClient({ roomId }: { roomId: string }) {
       !localStream ||
       !socketConnected ||
       !roomState.interviewStarted ||
-      Boolean(getFrontendDeepgramApiKey())
+      !getFrontendDeepgramApiKey()
     ) {
       return;
     }
@@ -1274,70 +1274,110 @@ export function RoomClient({ roomId }: { roomId: string }) {
       return;
     }
 
-    const deepgramUrl =
-      "wss://api.deepgram.com/v1/listen?model=nova-2&interim_results=true&smart_format=true&endpointing=300";
-    const ws = new WebSocket(deepgramUrl, ["token", deepgramApiKey]);
     const mimeType = getAudioRecorderMimeType();
     const audioStream = new MediaStream([audioTrack]);
-    const recorder = mimeType
-      ? new MediaRecorder(audioStream, { mimeType })
-      : new MediaRecorder(audioStream);
+    const deepgramUrl =
+      "wss://api.deepgram.com/v1/listen?model=nova-2&interim_results=true&smart_format=true&punctuate=true&endpointing=500&utterance_end_ms=1200";
+    let ws: WebSocket | null = null;
+    let recorder: MediaRecorder | null = null;
     let lastFinalTranscript = "";
     let ready = false;
+    let cancelled = false;
+    let reconnectTimer = 0;
+    let keepAliveTimer = 0;
 
-    ws.onopen = () => {
-      ready = true;
-      recorder.start(250);
-    };
+    const startDeepgramStream = () => {
+      if (cancelled) return;
 
-    ws.onmessage = (event) => {
-      try {
-        const payload = JSON.parse(event.data);
-        const transcript = payload?.channel?.alternatives?.[0]?.transcript?.trim() || "";
-        if (!transcript) return;
+      ws = new WebSocket(deepgramUrl, ["token", deepgramApiKey]);
+      recorder = mimeType
+        ? new MediaRecorder(audioStream, { mimeType })
+        : new MediaRecorder(audioStream);
 
-        if (payload.is_final === true) {
-          if (transcript !== lastFinalTranscript) {
-            lastFinalTranscript = transcript;
-            socket.emit("candidate-live-transcript", {
-              roomId,
-              peerId,
-              text: transcript,
-              isFinal: true,
-            });
+      ws.onopen = () => {
+        ready = true;
+        if (recorder && recorder.state === "inactive") {
+          recorder.start(250);
+        }
+        keepAliveTimer = window.setInterval(() => {
+          if (ws?.readyState === WebSocket.OPEN) {
+            ws.send(JSON.stringify({ type: "KeepAlive" }));
           }
+        }, 8000);
+      };
+
+      ws.onmessage = (event) => {
+        try {
+          const payload = JSON.parse(event.data);
+          const transcript = payload?.channel?.alternatives?.[0]?.transcript?.trim() || "";
+          if (!transcript) return;
+
+          if (payload.is_final === true || payload.speech_final === true) {
+            if (transcript !== lastFinalTranscript) {
+              lastFinalTranscript = transcript;
+              socket.emit("candidate-live-transcript", {
+                roomId,
+                peerId,
+                text: transcript,
+                isFinal: true,
+              });
+            }
+            return;
+          }
+
+          socket.emit("candidate-live-transcript", {
+            roomId,
+            peerId,
+            text: transcript,
+            isFinal: false,
+          });
+        } catch (transcriptError) {
+          console.error("Deepgram transcript parse failed:", transcriptError);
+        }
+      };
+
+      ws.onerror = (event) => {
+        console.error("Deepgram socket error:", event);
+      };
+
+      ws.onclose = () => {
+        ready = false;
+        window.clearInterval(keepAliveTimer);
+        if (recorder && recorder.state !== "inactive") {
+          recorder.stop();
+        }
+        if (!cancelled) {
+          reconnectTimer = window.setTimeout(startDeepgramStream, 1200);
+        }
+      };
+
+      recorder.ondataavailable = async (event) => {
+        if (!ready || !event.data.size || ws?.readyState !== WebSocket.OPEN || isMutedRef.current) {
           return;
         }
 
-        socket.emit("candidate-live-transcript", {
-          roomId,
-          peerId,
-          text: transcript,
-          isFinal: false,
-        });
-      } catch (transcriptError) {
-        console.error("Deepgram transcript parse failed:", transcriptError);
-      }
+        try {
+          ws.send(await event.data.arrayBuffer());
+        } catch (streamError) {
+          console.error("Deepgram stream send failed:", streamError);
+        }
+      };
     };
 
-    recorder.ondataavailable = async (event) => {
-      if (!ready || !event.data.size || ws.readyState !== WebSocket.OPEN || isMutedRef.current) {
-        return;
-      }
-
-      try {
-        ws.send(await event.data.arrayBuffer());
-      } catch (streamError) {
-        console.error("Deepgram stream send failed:", streamError);
-      }
-    };
+    startDeepgramStream();
 
     return () => {
-      recorder.ondataavailable = null;
-      if (recorder.state !== "inactive") {
-        recorder.stop();
+      cancelled = true;
+      ready = false;
+      window.clearTimeout(reconnectTimer);
+      window.clearInterval(keepAliveTimer);
+      if (recorder) {
+        recorder.ondataavailable = null;
+        if (recorder.state !== "inactive") {
+          recorder.stop();
+        }
       }
-      if (ws.readyState === WebSocket.OPEN) {
+      if (ws?.readyState === WebSocket.OPEN) {
         ws.close();
       }
     };
@@ -1577,7 +1617,8 @@ export function RoomClient({ roomId }: { roomId: string }) {
       selectedRole !== "candidate" ||
       !localStream ||
       !socketConnected ||
-      !roomState.interviewStarted
+      !roomState.interviewStarted ||
+      Boolean(getFrontendDeepgramApiKey())
     ) {
       return;
     }
