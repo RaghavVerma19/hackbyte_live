@@ -4,11 +4,12 @@ import { ThemeProvider } from "@/components/theme-provider";
 
 export const metadata: Metadata = {
   title: "HackByte Live",
-  description: "Real-time video calling experience built with Next.js, Socket.io, and WebRTC."
+  description:
+    "Real-time video calling experience built with Next.js, Socket.io, and WebRTC.",
 };
 
 export default function RootLayout({
-  children
+  children,
 }: Readonly<{
   children: React.ReactNode;
 }>) {

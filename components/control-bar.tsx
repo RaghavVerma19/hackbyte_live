@@ -16,6 +16,7 @@ type ControlBarProps = {
   isMuted: boolean;
   isScreenSharing: boolean;
   isScreenSharePending: boolean;
+  showScreenShareControl?: boolean;
   controlsLocked?: boolean;
   onToggleMute: () => void;
   onToggleScreenShare: () => void;
@@ -27,6 +28,7 @@ export function ControlBar({
   isMuted,
   isScreenSharing,
   isScreenSharePending,
+  showScreenShareControl,
   controlsLocked,
   onToggleMute,
   onToggleScreenShare,
@@ -50,20 +52,22 @@ export function ControlBar({
               disabled={controlsLocked}
               icon={isMuted ? <MicOff className="h-5 w-5" /> : <Mic className="h-5 w-5" />}
             />
-            <RoundButton
-              label={
-                isScreenSharing
-                  ? "Stop sharing screen"
-                  : isScreenSharePending
-                    ? "Starting screen share"
-                    : "Share screen to start"
-              }
-              active={isScreenSharing}
-              danger={!isScreenSharing && !isScreenSharePending}
-              onClick={onToggleScreenShare}
-              disabled={isScreenSharePending}
-              icon={<MonitorUp className="h-5 w-5" />}
-            />
+            {showScreenShareControl && (
+              <RoundButton
+                label={
+                  isScreenSharing
+                    ? "Stop sharing screen"
+                    : isScreenSharePending
+                      ? "Starting screen share"
+                      : "Share screen to start"
+                }
+                active={isScreenSharing}
+                danger={!isScreenSharing && !isScreenSharePending}
+                onClick={onToggleScreenShare}
+                disabled={isScreenSharePending}
+                icon={<MonitorUp className="h-5 w-5" />}
+              />
+            )}
             <RoundButton
               label="Meeting details"
               active

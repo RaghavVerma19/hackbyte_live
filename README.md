@@ -38,7 +38,7 @@ hackbyte_live/
 
 1. Install dependencies with `npm install`
 2. Copy `.env.example` to `.env.local`
-3. Start signaling server with `npm run signaling`
+3. Start backend/signaling server from `C:\Users\DELL\Desktop\hack_byte_node`
 4. Start frontend with `npm run dev`
 
 ## Separate deployment
@@ -46,20 +46,26 @@ hackbyte_live/
 Frontend:
 
 - Deploy the Next.js app to Vercel.
+- Set `NEXT_PUBLIC_API_BASE_URL` to the public URL of your backend.
 - Set `NEXT_PUBLIC_SIGNALING_SERVER_URL` to the public URL of your signaling server.
 
-Signaling server:
+Backend / signaling server:
 
-- Deploy [server/server.js](C:\Users\DELL\Desktop\hackbyte_live\server\server.js) on a Node host like Render, Railway, Fly.io, or a VPS.
-- You can deploy the `server` folder by itself using [server/package.json](C:\Users\DELL\Desktop\hackbyte_live\server\package.json).
+- Deploy [server.js](C:\Users\DELL\Desktop\hack_byte_node\server.js) on a Node host like Render, Railway, Fly.io, or a VPS.
+- Use [package.json](C:\Users\DELL\Desktop\hack_byte_node\package.json) in the backend project.
 - Set `PORT` from your host platform.
-- Set `CLIENT_URL` or `CLIENT_URLS` so Socket.io CORS allows your frontend domain.
+- Set `JWT_SECRET` to a strong random value.
+- Set `CLIENT_URL` or `CLIENT_URLS` so API and Socket.io CORS allow your frontend domain.
+- Set `TRUST_PROXY=true` when deploying behind a reverse proxy.
 
 Example signaling env:
 
 ```text
+NODE_ENV=production
 PORT=4000
-CLIENT_URLS=http://localhost:3000,https://your-frontend-domain.vercel.app
+JWT_SECRET=replace-with-a-long-random-secret
+TRUST_PROXY=true
+CLIENT_URLS=https://your-frontend-domain.vercel.app
 ```
 
 ## Notes
@@ -67,4 +73,4 @@ CLIENT_URLS=http://localhost:3000,https://your-frontend-domain.vercel.app
 - Replace the TURN placeholders in `.env.local` before production deployment.
 - The signaling server supports multiple concurrent rooms using an in-memory room map.
 - WebRTC cleanup runs on leave and disconnect to reduce orphaned peer connections.
-- Production deployments need a separately hosted signaling server plus a real TURN service for restrictive networks.
+- Production deployments need a separately hosted backend/signaling server plus a real TURN service for restrictive networks.
