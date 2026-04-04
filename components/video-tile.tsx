@@ -39,7 +39,7 @@ export function VideoTile({
   return (
     <div
       className={cn(
-        "relative overflow-hidden rounded-[20px] bg-[#3c4043] shadow-[inset_0_0_0_1px_rgba(255,255,255,0.05)]",
+        "relative overflow-hidden rounded-[20px] bg-[#3c4043] shadow-[inset_0_0_0_1px_rgba(255,255,255,0.05)] transition-all duration-500 ease-out hover:-translate-y-0.5",
         priority ? "min-h-[320px] lg:min-h-[420px]" : "min-h-[220px]",
         compact && "min-h-[180px]",
         className,
@@ -51,7 +51,7 @@ export function VideoTile({
         playsInline
         muted={mirrored}
         className={cn(
-          "h-full w-full object-cover",
+          "h-full w-full object-cover transition-transform duration-700 ease-out",
           mirrored && "scale-x-[-1]",
           isCameraOff && "opacity-0",
         )}

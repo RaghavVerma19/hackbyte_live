@@ -30,9 +30,11 @@ type RemoteStreamKind = "camera" | "screen";
 type RemoteParticipant = {
   peerId: string;
   streamId: string;
-  kind: RemoteStreamKind;
   stream?: MediaStream;
   peer: Peer.Instance;
+};
+type DecoratedRemoteParticipant = RemoteParticipant & {
+  kind: RemoteStreamKind;
 };
 type PeerMap = Record<string, Peer.Instance>;
 type UserSnapshot = {
@@ -112,15 +114,52 @@ function buildTileLabel(user: { name: string; role: Role; shareActive: boolean }
   return user.shareActive ? `${user.name} · shared screen` : `${user.name} · ${roleLabel(user.role)}`;
 }
 
-function getRemoteStreamKind(
-  user: UserSnapshot | undefined,
-  existingCount: number,
-): RemoteStreamKind {
-  if (user?.role === "candidate" && user.shareActive && existingCount > 0) {
-    return "screen";
+function getStreamScore(stream?: MediaStream) {
+  const track = stream?.getVideoTracks()[0];
+  if (!track) return 0;
+  const settings = track.getSettings();
+
+  if (settings.displaySurface === "monitor") {
+    return Number.MAX_SAFE_INTEGER;
   }
 
-  return "camera";
+  const width = typeof settings.width === "number" ? settings.width : 0;
+  const height = typeof settings.height === "number" ? settings.height : 0;
+  return width * height;
+}
+
+function classifyRemoteParticipants(
+  participants: RemoteParticipant[],
+  knownUsers: MediaState,
+): DecoratedRemoteParticipant[] {
+  const groupedParticipants = new Map<string, RemoteParticipant[]>();
+
+  participants.forEach((participant) => {
+    const current = groupedParticipants.get(participant.peerId) ?? [];
+    current.push(participant);
+    groupedParticipants.set(participant.peerId, current);
+  });
+
+  return participants.map((participant) => {
+    const user = knownUsers[participant.peerId];
+    const peerStreams = groupedParticipants.get(participant.peerId) ?? [participant];
+    let kind: RemoteStreamKind = "camera";
+
+    if (user?.role === "candidate" && user.shareActive && peerStreams.length > 1) {
+      const screenStream = [...peerStreams].sort(
+        (left, right) => getStreamScore(right.stream) - getStreamScore(left.stream),
+      )[0];
+
+      if (screenStream?.streamId === participant.streamId) {
+        kind = "screen";
+      }
+    }
+
+    return {
+      ...participant,
+      kind,
+    };
+  });
 }
 
 export function RoomClient({ roomId }: { roomId: string }) {
@@ -155,13 +194,10 @@ export function RoomClient({ roomId }: { roomId: string }) {
   const signalingServerUrl = useMemo(() => getSignalingServerUrl(), []);
   const selectedRole = session?.user.role ?? null;
   const displayName = session?.user.email ?? "";
-  const gridClassName = useMemo(() => {
-    const count = participants.length;
-    if (count <= 1) return "grid-cols-1";
-    if (count === 2) return "md:grid-cols-2";
-    if (count <= 4) return "md:grid-cols-2 xl:grid-cols-2";
-    return "md:grid-cols-2 xl:grid-cols-3";
-  }, [participants.length]);
+  const decoratedParticipants = useMemo(
+    () => classifyRemoteParticipants(participants, mediaState),
+    [mediaState, participants],
+  );
   const interviewerPeerId = useMemo(
     () => Object.values(knownUsersRef.current).find((user) => user.role === "interviewer")?.peerId ?? null,
     [mediaState],
@@ -201,23 +237,20 @@ export function RoomClient({ roomId }: { roomId: string }) {
     });
 
     peer.on("stream", (remoteStream) => {
-      const remoteUser = knownUsersRef.current[targetPeerId];
       setParticipants((current) => {
         const existingIndex = current.findIndex(
           (participant) => participant.peerId === targetPeerId && participant.streamId === remoteStream.id,
         );
-        const existingCount = current.filter((participant) => participant.peerId === targetPeerId).length;
-        const kind = getRemoteStreamKind(remoteUser, existingCount);
 
         if (existingIndex >= 0) {
           return current.map((participant, index) =>
-            index === existingIndex ? { ...participant, stream: remoteStream, peer, kind } : participant,
+            index === existingIndex ? { ...participant, stream: remoteStream, peer } : participant,
           );
         }
 
         return [
           ...current,
-          { peerId: targetPeerId, streamId: remoteStream.id, stream: remoteStream, peer, kind },
+          { peerId: targetPeerId, streamId: remoteStream.id, stream: remoteStream, peer },
         ];
       });
     });
@@ -576,12 +609,25 @@ export function RoomClient({ roomId }: { roomId: string }) {
   const participantCount = Object.keys(mediaState).length;
   const authMissing = !session;
   const candidateLocked = selectedRole === "candidate" && !isScreenSharing;
-  const stageParticipants = participants.filter((participant) => {
-    if (selectedRole === "interviewer") {
-      return participant.peerId === candidatePeerId;
-    }
-
-    return participant.peerId === interviewerPeerId && participant.kind === "camera";
+  const candidateScreenParticipant = decoratedParticipants.find(
+    (participant) =>
+      participant.peerId === candidatePeerId && participant.kind === "screen",
+  );
+  const candidateCameraParticipant = decoratedParticipants.find(
+    (participant) =>
+      participant.peerId === candidatePeerId && participant.kind === "camera",
+  );
+  const interviewerCameraParticipant = decoratedParticipants.find(
+    (participant) =>
+      participant.peerId === interviewerPeerId && participant.kind === "camera",
+  );
+  const primaryStageParticipant =
+    selectedRole === "interviewer"
+      ? candidateScreenParticipant ?? candidateCameraParticipant ?? null
+      : interviewerCameraParticipant ?? null;
+  const secondaryStageParticipants = decoratedParticipants.filter((participant) => {
+    if (!primaryStageParticipant) return true;
+    return participant.streamId !== primaryStageParticipant.streamId;
   });
   const statusCopy =
     roomState.waitingFor === "candidate"
@@ -593,6 +639,12 @@ export function RoomClient({ roomId }: { roomId: string }) {
           : roomState.waitingFor === "single_screen_share"
             ? "Only one screen share is allowed in the room."
             : "Interview is live.";
+  const stageTitle =
+    selectedRole === "interviewer"
+      ? candidateScreenParticipant
+        ? "Candidate screen"
+        : "Candidate feed"
+      : "Interviewer feed";
 
   return (
     <main className="min-h-screen bg-[#202124] text-white">
@@ -630,45 +682,139 @@ export function RoomClient({ roomId }: { roomId: string }) {
         {screenShareError && <Banner tone="red">{screenShareError}</Banner>}
         {error && <Banner tone="red">{error}</Banner>}
 
-        <div className="mx-auto grid max-w-7xl gap-4 xl:grid-cols-[minmax(0,1fr)_328px]">
-          <section className="relative min-h-[calc(100vh-180px)] overflow-hidden rounded-[28px] bg-[#161718] p-3 sm:p-4">
-            <div className={`grid h-full gap-3 ${gridClassName}`}>
-              {stageParticipants.length === 0 ? (
-                <div className="flex min-h-[420px] items-center justify-center rounded-[24px] bg-[#2b2c2f] text-center text-white/68">
-                  <div>
-                    <p className="text-lg">{roomState.interviewStarted ? "Waiting for media" : "Interview is gated"}</p>
-                    <p className="mt-2 text-sm text-white/50">{statusCopy}</p>
+        <div className="mx-auto grid max-w-7xl gap-4 xl:grid-cols-[minmax(0,1fr)_340px]">
+          <section className="relative min-h-[calc(100vh-180px)] overflow-hidden rounded-[32px] border border-white/6 bg-[#161718] p-3 shadow-[0_26px_80px_rgba(0,0,0,0.26)] sm:p-4">
+            <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_top,rgba(138,180,248,0.12),transparent_34%),linear-gradient(180deg,rgba(255,255,255,0.03),transparent_30%)]" />
+
+            <div className="relative flex h-full flex-col gap-4">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div>
+                  <div className="text-xs uppercase tracking-[0.24em] text-white/45">
+                    {selectedRole === "interviewer" ? "Interviewer workspace" : "Candidate workspace"}
+                  </div>
+                  <div className="mt-1 text-2xl font-medium text-white">{stageTitle}</div>
+                </div>
+                <div className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-3 py-2 text-xs text-white/72 backdrop-blur-sm">
+                  <span className={`h-2.5 w-2.5 rounded-full ${roomState.interviewStarted ? "bg-emerald-400 shadow-[0_0_18px_rgba(74,222,128,0.75)]" : "bg-amber-300 shadow-[0_0_18px_rgba(252,211,77,0.55)]"}`} />
+                  {statusCopy}
+                </div>
+              </div>
+
+              <div className="grid flex-1 gap-4 lg:grid-cols-[minmax(0,1fr)_260px]">
+                <div className="room-fade-in relative overflow-hidden rounded-[28px] border border-white/6 bg-[#111214] p-2 sm:p-3">
+                  {primaryStageParticipant ? (
+                    <VideoTile
+                      key={`${primaryStageParticipant.peerId}-${primaryStageParticipant.streamId}`}
+                      label={
+                        primaryStageParticipant.kind === "screen"
+                          ? `${mediaState[primaryStageParticipant.peerId]?.name ?? "Candidate"} · full screen`
+                          : mediaState[primaryStageParticipant.peerId]
+                            ? buildTileLabel(mediaState[primaryStageParticipant.peerId])
+                            : "Participant"
+                      }
+                      stream={primaryStageParticipant.stream}
+                      isMuted={
+                        primaryStageParticipant.kind === "camera"
+                          ? mediaState[primaryStageParticipant.peerId]?.muted
+                          : false
+                      }
+                      isCameraOff={
+                        primaryStageParticipant.kind === "camera"
+                          ? mediaState[primaryStageParticipant.peerId]?.cameraOff
+                          : false
+                      }
+                      priority
+                      className="room-stage-tile min-h-[360px] sm:min-h-[520px]"
+                    />
+                  ) : (
+                    <div className="flex min-h-[360px] items-center justify-center rounded-[24px] bg-[#2b2c2f] text-center text-white/68 sm:min-h-[520px]">
+                      <div>
+                        <p className="text-lg">{roomState.interviewStarted ? "Waiting for media" : "Interview is gated"}</p>
+                        <p className="mt-2 text-sm text-white/50">{statusCopy}</p>
+                      </div>
+                    </div>
+                  )}
+
+                  {selectedRole === "interviewer" && candidateScreenParticipant && candidateCameraParticipant && (
+                    <div className="room-float-in absolute bottom-5 right-5 w-[34%] min-w-[200px] max-w-[280px]">
+                      <VideoTile
+                        key={`${candidateCameraParticipant.peerId}-${candidateCameraParticipant.streamId}-pip`}
+                        label={buildTileLabel(mediaState[candidateCameraParticipant.peerId])}
+                        stream={candidateCameraParticipant.stream}
+                        isMuted={mediaState[candidateCameraParticipant.peerId]?.muted}
+                        isCameraOff={mediaState[candidateCameraParticipant.peerId]?.cameraOff}
+                        className="min-h-[148px] border border-white/10 shadow-[0_18px_45px_rgba(0,0,0,0.45)]"
+                      />
+                    </div>
+                  )}
+                </div>
+
+                <div className="flex flex-col gap-4">
+                  <div className="room-rise-in rounded-[28px] border border-white/6 bg-white/[0.03] p-4 backdrop-blur-sm">
+                    <div className="mb-3 flex items-center justify-between">
+                      <div>
+                        <p className="text-sm text-white/55">You</p>
+                        <h2 className="text-lg font-medium text-white">{displayName || "Loading..."}</h2>
+                        <p className="mt-1 text-xs text-white/45">
+                          {selectedRole ? roleLabel(selectedRole) : "Auth pending"}
+                        </p>
+                      </div>
+                      <div className={`rounded-full px-3 py-1 text-xs font-medium ${roomState.interviewStarted ? "bg-emerald-500/15 text-emerald-300" : "bg-[#ea4335]/15 text-[#ff8a80]"}`}>
+                        {roomState.interviewStarted ? "Live" : "Waiting"}
+                      </div>
+                    </div>
+                    <VideoTile
+                      label="Your camera"
+                      stream={localStream ?? undefined}
+                      isMuted={isMuted}
+                      isCameraOff={false}
+                      mirrored
+                      compact
+                      className="min-h-[220px] sm:min-h-[240px]"
+                    />
+                  </div>
+
+                  <div className="room-rise-in rounded-[28px] border border-white/6 bg-white/[0.03] p-4 backdrop-blur-sm [animation-delay:120ms]">
+                    <div className="mb-3 flex items-center justify-between">
+                      <div className="text-sm font-medium text-white">Live feeds</div>
+                      <div className="text-xs text-white/45">{secondaryStageParticipants.length} secondary</div>
+                    </div>
+                    <div className="space-y-3">
+                      {secondaryStageParticipants.length === 0 ? (
+                        <div className="rounded-2xl bg-[#2b2c2f] px-4 py-6 text-center text-sm text-white/55">
+                          Extra participant feeds will appear here.
+                        </div>
+                      ) : (
+                        secondaryStageParticipants.map((participant) => {
+                          const participantState = mediaState[participant.peerId];
+                          const label =
+                            participant.kind === "screen"
+                              ? `${participantState?.name ?? "Candidate"} · screen`
+                              : participantState
+                                ? buildTileLabel(participantState)
+                                : "Participant";
+
+                          return (
+                            <VideoTile
+                              key={`${participant.peerId}-${participant.streamId}-secondary`}
+                              label={label}
+                              stream={participant.stream}
+                              isMuted={participant.kind === "camera" ? participantState?.muted : false}
+                              isCameraOff={participant.kind === "camera" ? participantState?.cameraOff : false}
+                              compact
+                              className="room-fade-in min-h-[160px]"
+                            />
+                          );
+                        })
+                      )}
+                    </div>
                   </div>
                 </div>
-              ) : (
-                stageParticipants.map((participant) => {
-                  const participantState = mediaState[participant.peerId];
-                  const label =
-                    participant.kind === "screen"
-                      ? `${participantState?.name ?? "Candidate"} · screen`
-                      : participantState
-                        ? buildTileLabel(participantState)
-                        : "Participant";
-                  return (
-                    <VideoTile
-                      key={`${participant.peerId}-${participant.streamId}`}
-                      label={label}
-                      stream={participant.stream}
-                      isMuted={participant.kind === "camera" ? participantState?.muted : false}
-                      isCameraOff={participant.kind === "camera" ? participantState?.cameraOff : false}
-                      priority={stageParticipants.length === 1}
-                    />
-                  );
-                })
-              )}
-            </div>
-
-            <div className="absolute left-5 top-5 hidden rounded-full bg-black/20 px-3 py-1.5 text-xs text-white/75 backdrop-blur md:inline-flex">
-              Interview stage
+              </div>
             </div>
 
             {authMissing && (
-              <div className="absolute inset-0 z-20 flex items-center justify-center bg-[#0f1011]/90 p-4 backdrop-blur-sm">
+              <div className="room-fade-in absolute inset-0 z-20 flex items-center justify-center bg-[#0f1011]/90 p-4 backdrop-blur-sm">
                 <div className="w-full max-w-xl rounded-[28px] border border-white/10 bg-[#1d1f20] p-6 text-center shadow-[0_24px_80px_rgba(0,0,0,0.35)] sm:p-8">
                   <h2 className="text-2xl font-semibold text-white">Authentication required</h2>
                   <p className="mt-3 text-sm leading-7 text-white/70 sm:text-base">
@@ -688,7 +834,7 @@ export function RoomClient({ roomId }: { roomId: string }) {
             )}
 
             {candidateLocked && !authMissing && (
-              <div className="absolute inset-0 z-10 flex items-center justify-center bg-[#0f1011]/88 p-4 backdrop-blur-sm">
+              <div className="room-fade-in absolute inset-0 z-10 flex items-center justify-center bg-[#0f1011]/88 p-4 backdrop-blur-sm">
                 <div className="w-full max-w-xl rounded-[28px] border border-white/10 bg-[#1d1f20] p-6 text-center shadow-[0_24px_80px_rgba(0,0,0,0.35)] sm:p-8">
                   <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-[#ea4335]/15 text-[#ff8a80]">
                     <MonitorUp className="h-7 w-7" />
@@ -710,32 +856,10 @@ export function RoomClient({ roomId }: { roomId: string }) {
           </section>
 
           <aside className="flex flex-col gap-4">
-            <div className="rounded-[28px] bg-[#161718] p-4">
-              <div className="mb-3 flex items-center justify-between">
-                <div>
-                  <p className="text-sm text-white/55">You</p>
-                  <h2 className="text-lg font-medium">{displayName || "Loading..."}</h2>
-                  <p className="mt-1 text-xs text-white/45">{selectedRole ? roleLabel(selectedRole) : "Auth pending"}</p>
-                </div>
-                <div className={`rounded-full px-3 py-1 text-xs font-medium ${roomState.interviewStarted ? "bg-emerald-500/15 text-emerald-300" : "bg-[#ea4335]/15 text-[#ff8a80]"}`}>
-                  {roomState.interviewStarted ? "Live" : "Waiting"}
-                </div>
-              </div>
-              <VideoTile
-                label={selectedRole === "candidate" ? "Your camera" : "Your camera"}
-                stream={localStream ?? undefined}
-                isMuted={isMuted}
-                isCameraOff={false}
-                mirrored
-                compact
-                className="min-h-[240px] sm:min-h-[300px]"
-              />
-            </div>
-
-            <div className="rounded-[28px] bg-[#161718] p-4 text-sm text-white/72">
+            <div className="room-rise-in rounded-[28px] border border-white/6 bg-[#161718] p-4 text-sm text-white/72 [animation-delay:180ms]">
               <div className="mb-4 flex items-center justify-between">
                 <div className="text-base font-medium text-white">Interview details</div>
-                <button onClick={copyRoomLink} className="inline-flex items-center gap-2 rounded-full bg-[#303134] px-3 py-2 text-xs font-medium text-white transition hover:bg-[#3c4043]">
+                <button onClick={copyRoomLink} className="inline-flex items-center gap-2 rounded-full bg-[#303134] px-3 py-2 text-xs font-medium text-white transition duration-300 hover:bg-[#3c4043]">
                   {copied ? <><Check className="h-4 w-4" />Copied</> : <><Copy className="h-4 w-4" />Copy link</>}
                 </button>
               </div>
@@ -746,6 +870,16 @@ export function RoomClient({ roomId }: { roomId: string }) {
               </div>
               <div className="mt-3 rounded-2xl bg-[#2b2c2f] px-4 py-3 text-xs leading-6 text-white/68">
                 Candidate full-screen sharing is the only allowed screen share in the room.
+              </div>
+            </div>
+
+            <div className="room-rise-in rounded-[28px] border border-white/6 bg-[#161718] p-4 text-sm text-white/72 [animation-delay:240ms]">
+              <div className="mb-3 text-base font-medium text-white">Room snapshot</div>
+              <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-1">
+                <MetricCard label="Participants" value={`${participantCount}`} />
+                <MetricCard label="Primary share" value={roomState.activeShareSurface ? roomState.activeShareSurface : "None"} />
+                <MetricCard label="Share rule" value={roomState.shareRequirementMet ? "Satisfied" : "Pending"} />
+                <MetricCard label="Current gate" value={roomState.waitingFor.replaceAll("_", " ")} />
               </div>
             </div>
           </aside>
@@ -789,6 +923,15 @@ function TopChip({
     <div className={`inline-flex h-10 items-center gap-2 rounded-full bg-white/6 px-3 text-sm text-white/80 ${className ?? ""}`}>
       {icon}
       <span>{label}</span>
+    </div>
+  );
+}
+
+function MetricCard({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded-2xl bg-[#2b2c2f] px-4 py-3">
+      <div className="text-[11px] uppercase tracking-[0.18em] text-white/40">{label}</div>
+      <div className="mt-2 text-sm font-medium capitalize text-white/82">{value}</div>
     </div>
   );
 }
