@@ -5,12 +5,8 @@ import type { Route } from "next";
 import { useRouter } from "next/navigation";
 import {
   ArrowRight,
-  CalendarDays,
   Keyboard,
   LogOut,
-  MonitorUp,
-  Plus,
-  ShieldCheck,
   Video,
 } from "lucide-react";
 import { v4 as uuidv4 } from "uuid";
@@ -107,28 +103,30 @@ export default function HomePage() {
             Welcome back, {session.user.email}.
           </h1>
           <p className="mx-auto mt-5 max-w-xl text-lg leading-8 text-muted">
-            Your {session.user.role} account is authenticated with JWT and the
-            interview backend will enforce the same role when you join a room.
+            {session.user.role === "interviewer"
+              ? "Create a new interview or jump into an existing room."
+              : "Join the interview room shared with you."}
           </p>
 
           <div className="mt-9 flex flex-col gap-3 sm:flex-row sm:justify-center">
-            <button
-              onClick={createMeeting}
-              className="inline-flex h-12 items-center justify-center gap-2 rounded-full bg-accent px-6 text-sm font-medium text-white transition hover:bg-accent/90"
-            >
-              <Plus className="h-4 w-4" />
-              New interview
-            </button>
+            {session.user.role === "interviewer" && (
+              <button
+                onClick={createMeeting}
+                className="inline-flex h-12 items-center justify-center gap-2 rounded-full bg-accent px-6 text-sm font-medium text-white transition hover:bg-accent/90"
+              >
+                New interview
+              </button>
+            )}
 
             <form
               onSubmit={joinMeeting}
-              className="flex h-12 flex-1 items-center rounded-full border border-line bg-panel px-3 shadow-sm sm:max-w-[420px]"
+              className="flex h-12 flex-1 items-center rounded-full border border-line bg-panel px-3 shadow-sm sm:max-w-[460px]"
             >
               <Keyboard className="ml-2 h-4 w-4 text-muted" />
               <input
                 value={meetingId}
                 onChange={(event) => setMeetingId(event.target.value)}
-                placeholder="Enter a code or link"
+                placeholder={session.user.role === "candidate" ? "Paste your room code or link" : "Enter a code or link"}
                 className="h-full flex-1 bg-transparent px-3 text-sm outline-none placeholder:text-muted"
               />
               <button
@@ -142,46 +140,8 @@ export default function HomePage() {
           </div>
 
           <div className="mt-4 text-sm text-muted">{previewLink}</div>
-
-          <div className="mt-10 grid gap-3 text-left sm:grid-cols-3">
-            <FeatureCard
-              icon={<CalendarDays className="h-4 w-4" />}
-              title="JWT auth"
-              description="Your role and identity come from the backend-issued token."
-            />
-            <FeatureCard
-              icon={<MonitorUp className="h-4 w-4" />}
-              title="Candidate gating"
-              description="Candidate interviews unlock only when the entire screen is shared."
-            />
-            <FeatureCard
-              icon={<ShieldCheck className="h-4 w-4" />}
-              title="Backend enforced"
-              description="Room permissions and interview start rules are validated server-side."
-            />
-          </div>
         </div>
       </section>
     </main>
-  );
-}
-
-function FeatureCard({
-  icon,
-  title,
-  description,
-}: {
-  icon: React.ReactNode;
-  title: string;
-  description: string;
-}) {
-  return (
-    <div className="rounded-[1.4rem] border border-line bg-panel px-4 py-4">
-      <div className="mb-3 flex h-9 w-9 items-center justify-center rounded-full bg-accent/10 text-accent">
-        {icon}
-      </div>
-      <h3 className="text-sm font-medium">{title}</h3>
-      <p className="mt-1 text-sm leading-6 text-muted">{description}</p>
-    </div>
   );
 }

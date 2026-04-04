@@ -63,6 +63,15 @@ type AiScoreState = {
   confidence: "idle" | "low" | "medium" | "high";
   samplesAnalyzed: number;
   updatedAt: number | null;
+  status:
+    | "idle"
+    | "listening"
+    | "analyzing"
+    | "ready"
+    | "error"
+    | "transcription_disabled"
+    | "scoring_disabled";
+  detail: string;
 };
 
 const EMPTY_ROOM_STATE: RoomState = {
@@ -82,6 +91,8 @@ const EMPTY_AI_SCORE: AiScoreState = {
   confidence: "idle",
   samplesAnalyzed: 0,
   updatedAt: null,
+  status: "idle",
+  detail: "Waiting for candidate audio.",
 };
 
 /* ─── pure helpers ─── */
@@ -429,6 +440,18 @@ function WaitingPlaceholder({ message }: { message: string }) {
 
 function AiSignalCard({ score }: { score: AiScoreState }) {
   const percentage = score.aiLikelihood ?? 0;
+  const statusLabel =
+    score.status === "transcription_disabled"
+      ? "Deepgram off"
+      : score.status === "scoring_disabled"
+        ? "Gemini off"
+        : score.status === "analyzing"
+          ? "Analyzing"
+          : score.status === "ready"
+            ? "Live"
+            : score.status === "error"
+              ? "Delayed"
+              : "Listening";
   const tone =
     percentage >= 70
       ? {
@@ -447,6 +470,14 @@ function AiSignalCard({ score }: { score: AiScoreState }) {
             accent: "bg-emerald-400",
             text: "text-emerald-200",
           };
+  const verdictText =
+    score.aiLikelihood === null
+      ? "No scored answer yet"
+      : percentage >= 70
+        ? "Highly structured or AI-like phrasing"
+        : percentage >= 40
+          ? "Mixed signal in recent answer"
+          : "Mostly natural spoken delivery";
 
   return (
     <div className="meet-slide rounded-xl bg-[#2a2b2f] px-4 py-3" style={{ animationDelay: "20ms" }}>
@@ -460,7 +491,7 @@ function AiSignalCard({ score }: { score: AiScoreState }) {
           </div>
         </div>
         <span className={`rounded-full bg-white/8 px-2.5 py-1 text-[11px] font-medium ${tone.text}`}>
-          {score.aiLikelihood === null ? "Listening" : tone.label}
+          {score.aiLikelihood === null ? statusLabel : tone.label}
         </span>
       </div>
 
@@ -471,9 +502,16 @@ function AiSignalCard({ score }: { score: AiScoreState }) {
         />
       </div>
 
+      <div className="mt-3 text-xs text-white/70">{verdictText}</div>
+      <div className="mt-2 text-[11px] leading-5 text-white/45">{score.detail}</div>
+
       <div className="mt-3 flex items-center justify-between text-[11px] text-white/45">
         <span>{score.samplesAnalyzed} sample{score.samplesAnalyzed === 1 ? "" : "s"}</span>
-        <span className="capitalize">{score.confidence}</span>
+        <span>{score.updatedAt ? new Date(score.updatedAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }) : statusLabel}</span>
+      </div>
+      <div className="mt-1 flex items-center justify-between text-[11px] text-white/35">
+        <span className="capitalize">{score.confidence} confidence</span>
+        <span>{statusLabel}</span>
       </div>
     </div>
   );
