@@ -74,7 +74,7 @@ type AiScoreState = {
     | "transcription_disabled"
     | "scoring_disabled";
   detail: string;
-  transcriptMode: "waiting" | "browser" | "deepgram";
+  transcriptMode: "waiting" | "browser" | "deepgram" | "streaming";
 };
 type AiTranscriptEntry = {
   text: string;
@@ -83,7 +83,7 @@ type AiTranscriptEntry = {
 type AiTranscriptState = {
   transcripts: AiTranscriptEntry[];
   draft: string;
-  mode: "waiting" | "browser" | "deepgram";
+  mode: "waiting" | "browser" | "deepgram" | "streaming";
 };
 
 const EMPTY_ROOM_STATE: RoomState = {
@@ -654,7 +654,6 @@ export function RoomClient({ roomId }: { roomId: string }) {
   const publishedStreamsRef = useRef<MediaStream[]>([]);
   const iceServersRef = useRef<RTCIceServer[]>(buildFallbackIceServers());
   const isMutedRef = useRef(false);
-  const speechRecognitionSupported = useMemo(() => Boolean(getSpeechRecognitionCtor()), []);
   const pendingJoinShareStateRef = useRef({
     active: false,
     displaySurface: null as string | null,
@@ -1095,6 +1094,7 @@ export function RoomClient({ roomId }: { roomId: string }) {
     recognition.lang = "en-US";
 
     let stopped = false;
+    let restartTimer: number | null = null;
 
     recognition.onresult = (event) => {
       let interimText = "";
@@ -1125,21 +1125,18 @@ export function RoomClient({ roomId }: { roomId: string }) {
     };
 
     recognition.onerror = () => {
-      if (!stopped) {
-        setAiScore((current) => ({
-          ...current,
-          detail: "Browser live transcript is unavailable. Falling back to delayed transcription.",
-        }));
-      }
+      // Keep the recorder fallback active even if browser speech recognition is unreliable.
     };
 
     recognition.onend = () => {
       if (!stopped && !isMutedRef.current) {
-        try {
-          recognition.start();
-        } catch {
-          // Browsers can reject immediate restarts after rapid stop/start.
-        }
+        restartTimer = window.setTimeout(() => {
+          try {
+            recognition.start();
+          } catch {
+            // Browsers can reject immediate restarts after rapid stop/start.
+          }
+        }, 250);
       }
     };
 
@@ -1154,6 +1151,9 @@ export function RoomClient({ roomId }: { roomId: string }) {
       recognition.onresult = null;
       recognition.onerror = null;
       recognition.onend = null;
+      if (restartTimer) {
+        window.clearTimeout(restartTimer);
+      }
       recognition.stop();
     };
   }, [localStream, roomId, roomState.interviewStarted, selectedRole, socketConnected]);
@@ -1163,8 +1163,7 @@ export function RoomClient({ roomId }: { roomId: string }) {
       selectedRole !== "candidate" ||
       !localStream ||
       !socketConnected ||
-      !roomState.interviewStarted ||
-      speechRecognitionSupported
+      !roomState.interviewStarted
     ) {
       return;
     }
@@ -1215,7 +1214,6 @@ export function RoomClient({ roomId }: { roomId: string }) {
     roomState.interviewStarted,
     selectedRole,
     socketConnected,
-    speechRecognitionSupported,
   ]);
 
   useEffect(() => {
