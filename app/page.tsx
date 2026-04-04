@@ -1,157 +1,80 @@
 "use client";
 
-import { FormEvent, useEffect, useMemo, useState } from "react";
-import type { Route } from "next";
-import { useRouter } from "next/navigation";
-import {
-  ArrowRight,
-  FileSearch,
-  Keyboard,
-  LogOut,
-  Video,
-} from "lucide-react";
-import { v4 as uuidv4 } from "uuid";
-import { ThemeToggle } from "@/components/theme-toggle";
-import { AuthSession, clearSession, readSession } from "@/lib/auth";
+import Link from "next/link";
+import type { ReactNode } from "react";
+import { ArrowRight, ShieldCheck, Radar, Video } from "lucide-react";
+import { AppFrame } from "@/components/verifai-layout";
 
-export default function HomePage() {
-  const router = useRouter();
-  const [meetingId, setMeetingId] = useState("");
-  const [session, setSession] = useState<AuthSession | null>(null);
-
-  useEffect(() => {
-    const currentSession = readSession();
-    if (!currentSession) {
-      router.replace("/login");
-      return;
-    }
-    setSession(currentSession);
-  }, [router]);
-
-  const previewLink = useMemo(() => {
-    if (!meetingId.trim()) {
-      return "Paste a meeting code or full room URL";
-    }
-
-    const value = meetingId.trim();
-    const normalized = value.includes("/room/")
-      ? value.split("/room/")[1]
-      : (value.split("/").pop() ?? value);
-
-    return `${typeof window !== "undefined" ? window.location.origin : ""}/room/${normalized}`;
-  }, [meetingId]);
-
-  const buildRoomUrl = (roomId: string) => {
-    return `/room/${roomId}` as Route;
-  };
-
-  const createMeeting = () => {
-    router.push(buildRoomUrl(uuidv4()));
-  };
-
-  const joinMeeting = (event: FormEvent) => {
-    event.preventDefault();
-    const value = meetingId.trim();
-    if (!value) return;
-
-    const normalized = value.includes("/room/")
-      ? value.split("/room/")[1].split("?")[0]
-      : (value.split("/").pop()?.split("?")[0] ?? value);
-
-    router.push(buildRoomUrl(normalized));
-  };
-
-  const logout = () => {
-    clearSession();
-    router.push("/login");
-  };
-
-  if (!session) {
-    return null;
-  }
-
+export default function LandingPage() {
   return (
-    <main className="min-h-screen bg-surface text-text">
-      <header className="meet-shell flex items-center justify-between py-5">
-        <div className="flex items-center gap-3">
-          <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-accent/12 text-accent">
-            <Video className="h-5 w-5" />
-          </div>
-          <div className="flex items-center gap-3">
-            <span className="text-[1.35rem] font-medium tracking-tight">
-              HackByte Interview
-            </span>
-            <span className="hidden rounded-full border border-line px-3 py-1 text-xs text-muted sm:inline-flex">
-              {session.user.role}
-            </span>
-          </div>
-        </div>
-        <div className="flex items-center gap-3">
-          <button
-            onClick={logout}
-            className="inline-flex items-center gap-2 rounded-full border border-line px-4 py-2 text-sm text-muted transition hover:text-text"
+    <AppFrame>
+      <section className="mx-auto flex min-h-[calc(100vh-7rem)] w-full max-w-7xl flex-col items-center justify-center px-6 pb-16 text-center">
+        <div className="verifai-badge">Trust faster. Screen smarter. Hire better.</div>
+        <h1 className="mt-8 max-w-4xl text-5xl font-semibold tracking-tight text-white sm:text-7xl sm:leading-[1.04]">
+          Hire Smarter with <span className="text-cyan-300">VerifAI</span>
+        </h1>
+        <p className="mt-6 max-w-2xl text-lg leading-8 text-white/65 sm:text-xl">
+          AI-driven hiring intelligence for resume verification, ATS optimization, and live interview
+          confidence signals in one elegant workflow.
+        </p>
+
+        <div className="mt-10 flex flex-col gap-4 sm:flex-row">
+          <Link
+            href="/auth"
+            className="inline-flex items-center justify-center gap-2 rounded-full bg-[linear-gradient(135deg,#14b8a6,#22d3ee)] px-7 py-4 text-base font-medium text-slate-950 shadow-[0_0_45px_rgba(34,211,238,0.25)] transition hover:scale-[1.02]"
           >
-            <LogOut className="h-4 w-4" />
-            Logout
-          </button>
-          <ThemeToggle />
+            Get Started
+            <ArrowRight className="h-4 w-4" />
+          </Link>
+          <Link
+            href="/auth"
+            className="inline-flex items-center justify-center rounded-full border border-white/12 bg-white/[0.04] px-7 py-4 text-base text-white/78 transition hover:bg-white/[0.08]"
+          >
+            Explore the Platform
+          </Link>
         </div>
-      </header>
 
-      <section className="meet-shell flex min-h-[calc(100vh-92px)] items-center justify-center pb-10 pt-2">
-        <div className="mx-auto w-full max-w-2xl text-center">
-          <h1 className="mx-auto max-w-xl text-4xl font-normal tracking-tight sm:text-[3.25rem] sm:leading-[1.08]">
-            Welcome back, {session.user.email}.
-          </h1>
-          <p className="mx-auto mt-5 max-w-xl text-lg leading-8 text-muted">
-            {session.user.role === "interviewer"
-              ? "Create a new interview or jump into an existing room."
-              : "Join the interview room shared with you."}
-          </p>
-
-          <div className="mt-9 flex flex-col gap-3 sm:flex-row sm:justify-center">
-            {session.user.role === "interviewer" && (
-              <>
-                <button
-                  onClick={createMeeting}
-                  className="inline-flex h-12 items-center justify-center gap-2 rounded-full bg-accent px-6 text-sm font-medium text-white transition hover:bg-accent/90"
-                >
-                  New interview
-                </button>
-                <button
-                  onClick={() => router.push("/upload")}
-                  className="inline-flex h-12 items-center justify-center gap-2 rounded-full border border-line bg-panel px-6 text-sm font-medium text-text transition hover:border-accent/30 hover:text-accent"
-                >
-                  <FileSearch className="h-4 w-4" />
-                  Resume review
-                </button>
-              </>
-            )}
-
-            <form
-              onSubmit={joinMeeting}
-              className="flex h-12 flex-1 items-center rounded-full border border-line bg-panel px-3 shadow-sm sm:max-w-[460px]"
-            >
-              <Keyboard className="ml-2 h-4 w-4 text-muted" />
-              <input
-                value={meetingId}
-                onChange={(event) => setMeetingId(event.target.value)}
-                placeholder={session.user.role === "candidate" ? "Paste your room code or link" : "Enter a code or link"}
-                className="h-full flex-1 bg-transparent px-3 text-sm outline-none placeholder:text-muted"
-              />
-              <button
-                type="submit"
-                className="inline-flex items-center gap-2 rounded-full px-4 py-2 text-sm font-medium text-accent transition hover:bg-accent/8"
-              >
-                Join
-                <ArrowRight className="h-4 w-4" />
-              </button>
-            </form>
-          </div>
-
-          <div className="mt-4 text-sm text-muted">{previewLink}</div>
+        <div className="mt-16 grid w-full gap-5 md:grid-cols-3">
+          <FeatureCard
+            icon={<ShieldCheck className="h-5 w-5" />}
+            title="Resume Verify"
+            description="Cross-check profile claims, public proofs, and structured resume evidence before you even schedule the call."
+          />
+          <FeatureCard
+            icon={<Radar className="h-5 w-5" />}
+            title="ATS Score"
+            description="Simulate hiring system scans and surface practical resume improvements with instant, readable guidance."
+          />
+          <FeatureCard
+            icon={<Video className="h-5 w-5" />}
+            title="AI Interview"
+            description="Run modern interview rooms with live intelligence, proctoring cues, and confidence signals built into the flow."
+          />
         </div>
       </section>
-    </main>
+    </AppFrame>
+  );
+}
+
+function FeatureCard({
+  icon,
+  title,
+  description,
+}: {
+  icon: ReactNode;
+  title: string;
+  description: string;
+}) {
+  return (
+    <Link
+      href="/auth"
+      className="verifai-card group rounded-[28px] border border-white/10 p-6 text-left transition hover:-translate-y-1 hover:border-cyan-300/25"
+    >
+      <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-[linear-gradient(135deg,rgba(20,184,166,0.28),rgba(34,211,238,0.18))] text-cyan-200">
+        {icon}
+      </div>
+      <div className="mt-5 text-xl font-medium text-white">{title}</div>
+      <p className="mt-3 text-sm leading-7 text-white/58">{description}</p>
+    </Link>
   );
 }
