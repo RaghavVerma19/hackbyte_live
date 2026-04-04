@@ -14,6 +14,12 @@ export type AuthSession = {
   user: AuthUser;
 };
 
+export type IceServerConfig = {
+  urls: string | string[];
+  username?: string;
+  credential?: string;
+};
+
 const STORAGE_KEY = "hackbyte_auth_session";
 
 export function getApiBaseUrl() {
@@ -76,4 +82,18 @@ export async function fetchJson<T>(
   }
 
   return payload as T;
+}
+
+export async function fetchIceServers(token: string): Promise<IceServerConfig[]> {
+  const response = await fetchJson<{
+    ok: boolean;
+    iceServers: IceServerConfig[];
+  }>("/api/rtc/ice-servers", {
+    method: "GET",
+    headers: {
+      Authorization: `Bearer ${token}`,
+    },
+  });
+
+  return response.iceServers;
 }

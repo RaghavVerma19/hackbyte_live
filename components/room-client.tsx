@@ -16,7 +16,14 @@ import {
 } from "lucide-react";
 import { ControlBar } from "@/components/control-bar";
 import { VideoTile } from "@/components/video-tile";
-import { clearSession, readSession, type AuthSession, type AuthRole } from "@/lib/auth";
+import {
+  clearSession,
+  fetchIceServers,
+  readSession,
+  type AuthSession,
+  type AuthRole,
+  type IceServerConfig,
+} from "@/lib/auth";
 
 type Role = AuthRole;
 type RemoteParticipant = { peerId: string; stream?: MediaStream; peer: Peer.Instance };
@@ -69,17 +76,17 @@ function getSignalingServerUrl() {
   return "";
 }
 
-function buildIceServers() {
-  const stunUrl = process.env.NEXT_PUBLIC_STUN_URL;
-  const turnUrl = process.env.NEXT_PUBLIC_TURN_URL;
-  const turnUsername = process.env.NEXT_PUBLIC_TURN_USERNAME;
-  const turnCredential = process.env.NEXT_PUBLIC_TURN_CREDENTIAL;
-  return [
-    stunUrl ? { urls: stunUrl } : { urls: "stun:stun.l.google.com:19302" },
-    turnUrl && turnUsername && turnCredential
-      ? { urls: turnUrl, username: turnUsername, credential: turnCredential }
-      : null,
-  ].filter(Boolean) as RTCIceServer[];
+function buildFallbackIceServers() {
+  return [{ urls: "stun:stun.l.google.com:19302" }] as RTCIceServer[];
+}
+
+function normalizeIceServers(iceServers: IceServerConfig[]) {
+  if (!iceServers.length) return buildFallbackIceServers();
+  return iceServers.map((server) => ({
+    urls: server.urls,
+    username: server.username,
+    credential: server.credential,
+  })) as RTCIceServer[];
 }
 
 function formatClock(date: Date) {
@@ -124,6 +131,7 @@ export function RoomClient({ roomId }: { roomId: string }) {
   const cameraStreamRef = useRef<MediaStream | null>(null);
   const screenStreamRef = useRef<MediaStream | null>(null);
   const publishedStreamRef = useRef<MediaStream | null>(null);
+  const iceServersRef = useRef<RTCIceServer[]>(buildFallbackIceServers());
   const pendingJoinShareStateRef = useRef({ active: false, displaySurface: null as string | null });
   const isLeavingRef = useRef(false);
   const signalingServerUrl = useMemo(() => getSignalingServerUrl(), []);
@@ -153,7 +161,12 @@ export function RoomClient({ roomId }: { roomId: string }) {
     socket: Socket,
     initiator: boolean,
   ) => {
-    const peer = new Peer({ initiator, trickle: true, stream, config: { iceServers: buildIceServers() } });
+    const peer = new Peer({
+      initiator,
+      trickle: true,
+      stream,
+      config: { iceServers: iceServersRef.current },
+    });
 
     peer.on("signal", (signal) => {
       const signalData = signal as { type?: string; candidate?: unknown };
@@ -350,6 +363,20 @@ export function RoomClient({ roomId }: { roomId: string }) {
     });
   };
 
+  const ensureIceServers = async () => {
+    if (!session?.token) {
+      iceServersRef.current = buildFallbackIceServers();
+      return;
+    }
+
+    try {
+      const iceServers = await fetchIceServers(session.token);
+      iceServersRef.current = normalizeIceServers(iceServers);
+    } catch {
+      iceServersRef.current = buildFallbackIceServers();
+    }
+  };
+
   const startInterviewerSession = async () => {
     if (!signalingServerUrl) {
       setConnectionError("Missing NEXT_PUBLIC_SIGNALING_SERVER_URL. Point the frontend to your signaling server.");
@@ -359,6 +386,7 @@ export function RoomClient({ roomId }: { roomId: string }) {
     setError(null);
     setServerError(null);
     try {
+      await ensureIceServers();
       const media = await ensureCameraAndMic();
       pendingJoinShareStateRef.current = { active: false, displaySurface: null };
       setLocalStream(media);
@@ -381,6 +409,7 @@ export function RoomClient({ roomId }: { roomId: string }) {
     setScreenShareError(null);
     setServerError(null);
     try {
+      await ensureIceServers();
       const cameraStream = await ensureCameraAndMic();
       const screenStream = await navigator.mediaDevices.getDisplayMedia({
         video: { frameRate: { ideal: 15, max: 30 } },

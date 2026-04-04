@@ -48,6 +48,7 @@ Frontend:
 - Deploy the Next.js app to Vercel.
 - Set `NEXT_PUBLIC_API_BASE_URL` to the public URL of your backend.
 - Set `NEXT_PUBLIC_SIGNALING_SERVER_URL` to the public URL of your signaling server.
+- Twilio TURN credentials are no longer stored in frontend env vars. The frontend fetches ICE servers from the backend after login.
 
 Backend / signaling server:
 
@@ -57,6 +58,7 @@ Backend / signaling server:
 - Set `JWT_SECRET` to a strong random value.
 - Set `CLIENT_URL` or `CLIENT_URLS` so API and Socket.io CORS allow your frontend domain.
 - Set `TRUST_PROXY=true` when deploying behind a reverse proxy.
+- Set `TWILIO_ACCOUNT_SID` plus either `TWILIO_API_KEY` and `TWILIO_API_SECRET`, or `TWILIO_AUTH_TOKEN`, to enable Twilio Network Traversal Service.
 
 Example signaling env:
 
@@ -66,11 +68,15 @@ PORT=4000
 JWT_SECRET=replace-with-a-long-random-secret
 TRUST_PROXY=true
 CLIENT_URLS=https://your-frontend-domain.vercel.app
+TWILIO_ACCOUNT_SID=ACxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+TWILIO_API_KEY=SKxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+TWILIO_API_SECRET=your-twilio-api-secret
+TWILIO_NTS_TTL=3600
 ```
 
 ## Notes
 
-- Replace the TURN placeholders in `.env.local` before production deployment.
+- Twilio ICE credentials are served from the backend, so there are no TURN secrets in the frontend env anymore.
 - The signaling server supports multiple concurrent rooms using an in-memory room map.
 - WebRTC cleanup runs on leave and disconnect to reduce orphaned peer connections.
 - Production deployments need a separately hosted backend/signaling server plus a real TURN service for restrictive networks.
