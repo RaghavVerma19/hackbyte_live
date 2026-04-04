@@ -167,6 +167,7 @@ const STILL_DELTA_DEADZONE = 0.00075;
 const FALLBACK_DELTA_THRESHOLD = 0.0012;
 const FALLBACK_CONSECUTIVE_FRAMES = 3;
 const BLINK_THRESHOLD = 0.2;
+const EMIT_INTERVAL_MS = 75;
 const EYE_ANALYSIS_INTERVAL_MS = 10000;
 const MAX_VIDEO_BITRATE_KBPS = 500;
 const PREFERRED_CAMERA_CONSTRAINTS: MediaStreamConstraints = {
@@ -925,6 +926,8 @@ export function RoomClient({ roomId }: { roomId: string }) {
   const rightMomentumRef = useRef(0);
   const fallbackRightStreakRef = useRef(0);
   const fallbackLeftStreakRef = useRef(0);
+  const lastEmitTimeRef = useRef(0);
+  const noFaceStreakRef = useRef(0);
   const blinkLockFramesRef = useRef(0);
   const eyeMovementEventsRef = useRef<EyeMovementEvent[]>([]);
   const pendingJoinShareStateRef = useRef({
@@ -970,6 +973,8 @@ export function RoomClient({ roomId }: { roomId: string }) {
     rightMomentumRef.current = 0;
     fallbackRightStreakRef.current = 0;
     fallbackLeftStreakRef.current = 0;
+    lastEmitTimeRef.current = 0;
+    noFaceStreakRef.current = 0;
     blinkLockFramesRef.current = 0;
     eyeMovementEventsRef.current = [];
   };
@@ -1519,6 +1524,10 @@ export function RoomClient({ roomId }: { roomId: string }) {
     resetEyeTracking();
 
     const emitDirection = (direction: "L" | "R") => {
+      const now = Date.now();
+      if (now - lastEmitTimeRef.current < EMIT_INTERVAL_MS) return;
+
+      lastEmitTimeRef.current = now;
       eyeMovementEventsRef.current.push({
         direction,
         timestamp: new Date().toISOString(),
@@ -1590,9 +1599,17 @@ export function RoomClient({ roomId }: { roomId: string }) {
     }) => {
       const landmarks = results.multiFaceLandmarks?.[0];
       if (!landmarks) {
+        noFaceStreakRef.current += 1;
+        if (noFaceStreakRef.current >= 8) {
+          leftMomentumRef.current = 0;
+          rightMomentumRef.current = 0;
+          blinkLockFramesRef.current = 0;
+        }
         smoothedRatioRef.current = null;
         return;
       }
+
+      noFaceStreakRef.current = 0;
 
       const leftOuter = landmarks[33];
       const leftInner = landmarks[133];
