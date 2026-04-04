@@ -670,6 +670,14 @@ function AiSignalCard({
         : percentage >= 40
           ? "Speech and eye movement together show a mixed signal."
           : "Combined speech and eye signal looks mostly natural.";
+  const eyeReason =
+    analysis.lastUpdatedAt === null
+      ? "Eye tracking is still collecting enough motion to judge a stable reading pattern."
+      : analysis.isTypewriterMovement
+        ? analysis.reason
+        : analysis.cheatingScore >= 45
+          ? analysis.reason
+          : "Eye movement currently looks closer to natural conversational thinking than line-by-line reading.";
 
   return (
     <div className="meet-slide rounded-2xl bg-[#2a2b2f] px-5 py-4" style={{ animationDelay: "20ms" }}>
@@ -696,6 +704,19 @@ function AiSignalCard({
 
       <div className="mt-4 text-sm text-white/78">{verdictText}</div>
       <div className="mt-2 text-xs leading-6 text-white/50">{score.detail}</div>
+      <div className="mt-3 rounded-xl bg-white/[0.04] px-4 py-3">
+        <div className="text-[11px] uppercase tracking-[0.16em] text-white/35">Eye reading signal</div>
+        <div className="mt-2 text-sm text-white/82">
+          {analysis.lastUpdatedAt === null
+            ? "Waiting for eye pattern data."
+            : analysis.isTypewriterMovement
+              ? "Candidate may be reading line by line."
+              : analysis.cheatingScore >= 45
+                ? "Eye movement shows some structured sweeps, but not enough to confidently call reading."
+                : "Eye movement does not currently look like line-by-line reading."}
+        </div>
+        <div className="mt-2 text-xs leading-6 text-white/50">{eyeReason}</div>
+      </div>
       <div className="mt-2 flex items-center justify-between text-[11px] text-white/40">
         <span>Speech: {combined.speech === null ? "--" : `${combined.speech}%`}</span>
         <span>Eye: {combined.eye === null ? "--" : `${combined.eye}%`}</span>
@@ -730,7 +751,7 @@ function TranscriptFeed({ state }: { state: AiTranscriptState }) {
   }, [committedText, draft]);
 
   return (
-    <div className="meet-slide rounded-2xl bg-[#2a2b2f] px-5 py-4" style={{ animationDelay: "40ms" }}>
+    <div className="meet-slide flex h-full min-h-0 flex-col rounded-2xl bg-[#2a2b2f] px-5 py-4" style={{ animationDelay: "40ms" }}>
       <div className="flex items-center justify-between gap-3">
         <div className="text-xs uppercase tracking-[0.2em] text-white/45">
           Live transcript
@@ -742,7 +763,7 @@ function TranscriptFeed({ state }: { state: AiTranscriptState }) {
 
       <div
         ref={scrollRef}
-        className="mt-4 max-h-[360px] overflow-y-auto rounded-xl bg-white/[0.04] px-4 py-4 pr-2"
+        className="mt-4 flex-1 overflow-y-auto rounded-xl bg-white/[0.04] px-4 py-4 pr-2"
       >
         {liveText ? (
           <>
@@ -765,62 +786,6 @@ function TranscriptFeed({ state }: { state: AiTranscriptState }) {
           </div>
         )}
       </div>
-    </div>
-  );
-}
-
-function EyeAnalysisCard({ analysis }: { analysis: EyeAnalysisState }) {
-  const tone =
-    analysis.cheatingScore >= 70
-      ? "text-red-200"
-      : analysis.cheatingScore >= 45
-        ? "text-amber-100"
-        : "text-emerald-200";
-
-  return (
-    <div className="meet-slide rounded-2xl bg-[#2a2b2f] px-5 py-4" style={{ animationDelay: "60ms" }}>
-      <div className="flex items-center justify-between gap-3">
-        <div className="text-xs uppercase tracking-[0.2em] text-white/45">
-          Eye proctoring
-        </div>
-        <span className={`text-xs font-medium ${tone}`}>
-          {analysis.isCheating ? "Reading risk" : "Stable"}
-        </span>
-      </div>
-
-      <div className="mt-4 grid gap-3 sm:grid-cols-2">
-        <MetricPill label="Cheating score" value={`${analysis.cheatingScore}%`} tone={tone} />
-        <MetricPill label="Typewriter sweep" value={`${analysis.typewriterScore}%`} tone={analysis.isTypewriterMovement ? "text-amber-100" : "text-white"} />
-        <MetricPill label="Events" value={`${analysis.eventCount}`} tone="text-white" />
-        <MetricPill label="Confidence" value={analysis.confidence} tone="text-white" />
-      </div>
-
-      <div className="mt-4 text-sm text-white/82">{analysis.summary}</div>
-      <div className="mt-2 text-xs leading-6 text-white/50">{analysis.reason}</div>
-      <div className="mt-3 text-xs text-white/65">{analysis.recommendation}</div>
-
-      {analysis.history.length > 0 && (
-        <div className="mt-4">
-          <div className="mb-2 text-[11px] uppercase tracking-[0.18em] text-white/35">
-            Recent windows
-          </div>
-          <div className="flex gap-1.5">
-            {analysis.history.map((item) => (
-              <div
-                key={item.timestamp}
-                className={`h-10 flex-1 rounded-md ${
-                  item.cheatingScore >= 70
-                    ? "bg-red-400/45"
-                    : item.cheatingScore >= 45
-                      ? "bg-amber-300/45"
-                      : "bg-emerald-400/35"
-                }`}
-                title={`${new Date(item.timestamp).toLocaleTimeString()} • ${item.cheatingScore}%`}
-              />
-            ))}
-          </div>
-        </div>
-      )}
     </div>
   );
 }
@@ -870,23 +835,6 @@ function getCombinedInterviewRisk(
             ? "Medium"
             : "Low",
   };
-}
-
-function MetricPill({
-  label,
-  value,
-  tone,
-}: {
-  label: string;
-  value: string;
-  tone: string;
-}) {
-  return (
-    <div className="rounded-xl bg-white/[0.04] px-4 py-3">
-      <div className="text-[11px] uppercase tracking-[0.16em] text-white/35">{label}</div>
-      <div className={`mt-1 text-lg font-semibold ${tone}`}>{value}</div>
-    </div>
-  );
 }
 
 /* ══════════════════════════════════════════════════════════════════
@@ -2123,10 +2071,9 @@ export function RoomClient({ roomId }: { roomId: string }) {
                 </div>
               </div>
 
-              <aside className="grid min-h-0 gap-3 content-start">
+              <aside className="grid min-h-0 gap-3 content-start xl:grid-rows-[auto_minmax(0,1fr)]">
                 <AiSignalCard score={aiScore} analysis={eyeAnalysis} />
                 <TranscriptFeed state={aiTranscripts} />
-                <EyeAnalysisCard analysis={eyeAnalysis} />
               </aside>
             </div>
           )}
