@@ -107,6 +107,14 @@ type EyeAnalysisState = {
   }>;
 };
 
+type CombinedInterviewRisk = {
+  overall: number | null;
+  speech: number | null;
+  eye: number | null;
+  confidence: "idle" | "low" | "medium" | "high";
+  label: string;
+};
+
 const EMPTY_ROOM_STATE: RoomState = {
   roomId: "",
   interviewStarted: false,
@@ -614,8 +622,15 @@ function WaitingPlaceholder({ message }: { message: string }) {
   );
 }
 
-function AiSignalCard({ score }: { score: AiScoreState }) {
-  const percentage = score.aiLikelihood ?? 0;
+function AiSignalCard({
+  score,
+  analysis,
+}: {
+  score: AiScoreState;
+  analysis: EyeAnalysisState;
+}) {
+  const combined = getCombinedInterviewRisk(score, analysis);
+  const percentage = combined.overall ?? 0;
   const statusLabel =
     score.status === "transcription_disabled"
       ? "Deepgram off"
@@ -647,27 +662,27 @@ function AiSignalCard({ score }: { score: AiScoreState }) {
             text: "text-emerald-200",
           };
   const verdictText =
-    score.aiLikelihood === null
+    combined.overall === null
       ? "No scored answer yet"
       : percentage >= 70
-        ? "Highly structured or AI-like phrasing"
+        ? "Speech and eye movement together suggest a high reading or AI-assist risk."
         : percentage >= 40
-          ? "Mixed signal in recent answer"
-          : "Mostly natural spoken delivery";
+          ? "Speech and eye movement together show a mixed signal."
+          : "Combined speech and eye signal looks mostly natural.";
 
   return (
     <div className="meet-slide rounded-2xl bg-[#2a2b2f] px-5 py-4" style={{ animationDelay: "20ms" }}>
       <div className="flex items-start justify-between gap-3">
         <div>
           <div className="text-xs uppercase tracking-[0.2em] text-white/45">
-            Live AI signal
+            Live combined signal
           </div>
           <div className="mt-1 text-3xl font-semibold text-white">
-            {score.aiLikelihood === null ? "--" : `${score.aiLikelihood}%`}
+            {combined.overall === null ? "--" : `${combined.overall}%`}
           </div>
         </div>
         <span className={`rounded-full bg-white/8 px-2.5 py-1 text-[11px] font-medium ${tone.text}`}>
-          {score.aiLikelihood === null ? statusLabel : tone.label}
+          {combined.overall === null ? statusLabel : combined.label}
         </span>
       </div>
 
@@ -680,6 +695,10 @@ function AiSignalCard({ score }: { score: AiScoreState }) {
 
       <div className="mt-4 text-sm text-white/78">{verdictText}</div>
       <div className="mt-2 text-xs leading-6 text-white/50">{score.detail}</div>
+      <div className="mt-2 flex items-center justify-between text-[11px] text-white/40">
+        <span>Speech: {combined.speech === null ? "--" : `${combined.speech}%`}</span>
+        <span>Eye: {combined.eye === null ? "--" : `${combined.eye}%`}</span>
+      </div>
 
       <div className="mt-3 flex items-center justify-between text-[11px] text-white/45">
         <span>{score.samplesAnalyzed} sample{score.samplesAnalyzed === 1 ? "" : "s"}</span>
@@ -792,6 +811,53 @@ function EyeAnalysisCard({ analysis }: { analysis: EyeAnalysisState }) {
       )}
     </div>
   );
+}
+
+function getCombinedInterviewRisk(
+  score: AiScoreState,
+  analysis: EyeAnalysisState,
+): CombinedInterviewRisk {
+  const speech = score.aiLikelihood;
+  const eye = analysis.lastUpdatedAt ? analysis.cheatingScore : null;
+
+  if (speech === null && eye === null) {
+    return {
+      overall: null,
+      speech: null,
+      eye: null,
+      confidence: "idle",
+      label: "Waiting",
+    };
+  }
+
+  const weightedOverall =
+    speech !== null && eye !== null
+      ? Math.round(speech * 0.65 + eye * 0.35)
+      : speech ?? eye;
+
+  const confidence =
+    score.confidence === "high" || analysis.confidence === "high"
+      ? "high"
+      : score.confidence === "medium" || analysis.confidence === "medium"
+        ? "medium"
+        : score.confidence === "low" || analysis.confidence === "low"
+          ? "low"
+          : "idle";
+
+  return {
+    overall: weightedOverall ?? null,
+    speech,
+    eye,
+    confidence,
+    label:
+      weightedOverall === null
+        ? "Waiting"
+        : weightedOverall >= 70
+          ? "High"
+          : weightedOverall >= 40
+            ? "Medium"
+            : "Low",
+  };
 }
 
 function MetricPill({
@@ -1592,7 +1658,10 @@ export function RoomClient({ roomId }: { roomId: string }) {
           }
         ).FaceMesh;
 
-        if (!FaceMeshCtor) return;
+        if (!FaceMeshCtor) {
+          console.error("MediaPipe FaceMesh constructor not found on window.");
+          return;
+        }
 
         faceMesh = new FaceMeshCtor({
           locateFile: (file) => `${FACE_MESH_CDN}/${file}`,
@@ -1607,6 +1676,20 @@ export function RoomClient({ roomId }: { roomId: string }) {
 
         eyeVideoRef.current.srcObject = localStream;
         eyeVideoRef.current.muted = true;
+        eyeVideoRef.current.playsInline = true;
+        await new Promise<void>((resolve) => {
+          if (!eyeVideoRef.current) {
+            resolve();
+            return;
+          }
+
+          if (eyeVideoRef.current.readyState >= 1) {
+            resolve();
+            return;
+          }
+
+          eyeVideoRef.current.onloadedmetadata = () => resolve();
+        });
         await eyeVideoRef.current.play().catch(() => undefined);
 
         const runLoop = async () => {
@@ -2013,7 +2096,7 @@ export function RoomClient({ roomId }: { roomId: string }) {
               </div>
 
               <aside className="grid min-h-0 gap-3 content-start">
-                <AiSignalCard score={aiScore} />
+                <AiSignalCard score={aiScore} analysis={eyeAnalysis} />
                 <TranscriptFeed state={aiTranscripts} />
                 <EyeAnalysisCard analysis={eyeAnalysis} />
               </aside>
@@ -2140,7 +2223,13 @@ export function RoomClient({ roomId }: { roomId: string }) {
           </div>
         </div>
 
-        <video ref={eyeVideoRef} autoPlay playsInline muted className="hidden" />
+        <video
+          ref={eyeVideoRef}
+          autoPlay
+          playsInline
+          muted
+          className="pointer-events-none absolute -left-[9999px] top-0 h-px w-px opacity-0"
+        />
       </div>
     </>
   );

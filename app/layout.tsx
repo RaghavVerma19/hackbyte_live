@@ -1,11 +1,11 @@
 import type { Metadata } from "next";
 import "./globals.css";
 import { ThemeProvider } from "@/components/theme-provider";
-import { MockAuthProvider } from "@/components/mock-auth-provider";
 
 export const metadata: Metadata = {
-  title: "VerifAI",
-  description: "AI-powered interview intelligence, ATS scoring, and resume verification.",
+  title: "HackByte Live",
+  description:
+    "Real-time video calling experience built with Next.js, Socket.io, and WebRTC.",
 };
 
 export default function RootLayout({
@@ -16,9 +16,7 @@ export default function RootLayout({
   return (
     <html lang="en" suppressHydrationWarning>
       <body>
-        <ThemeProvider>
-          <MockAuthProvider>{children}</MockAuthProvider>
-        </ThemeProvider>
+        <ThemeProvider>{children}</ThemeProvider>
       </body>
     </html>
   );
