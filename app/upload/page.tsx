@@ -1,7 +1,7 @@
 "use client";
 
 import type { ReactNode } from "react";
-import { ChangeEvent, useEffect, useMemo, useRef, useState } from "react";
+import { ChangeEvent, Suspense, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { motion } from "framer-motion";
@@ -69,7 +69,7 @@ function Panel({
   );
 }
 
-export default function UploadDashboard() {
+function UploadDashboardContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -450,5 +450,17 @@ export default function UploadDashboard() {
         </div>
       </div>
     </main>
+  );
+}
+
+function UploadDashboardFallback() {
+  return <main className="min-h-screen bg-slate-950" />;
+}
+
+export default function UploadDashboard() {
+  return (
+    <Suspense fallback={<UploadDashboardFallback />}>
+      <UploadDashboardContent />
+    </Suspense>
   );
 }
