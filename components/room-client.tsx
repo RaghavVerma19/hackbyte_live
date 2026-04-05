@@ -751,7 +751,7 @@ function TranscriptFeed({ state }: { state: AiTranscriptState }) {
   }, [committedText, draft]);
 
   return (
-    <div className="meet-slide flex h-full min-h-0 flex-col rounded-2xl bg-[#2a2b2f] px-5 py-4" style={{ animationDelay: "40ms" }}>
+    <div className="meet-slide flex h-full min-h-0 flex-col rounded-2xl bg-[#2a2b2f] px-5 py-4 overflow-hidden" style={{ animationDelay: "40ms" }}>
       <div className="flex items-center justify-between gap-3">
         <div className="text-xs uppercase tracking-[0.2em] text-white/45">
           Live transcript
@@ -763,14 +763,14 @@ function TranscriptFeed({ state }: { state: AiTranscriptState }) {
 
       <div
         ref={scrollRef}
-        className="mt-4 flex-1 overflow-y-auto rounded-xl bg-white/[0.04] px-4 py-4 pr-2"
+        className="mt-4 flex-1 overflow-y-auto rounded-xl bg-white/[0.04] px-4 py-4 pr-2 signal-scrollbar"
       >
         {liveText ? (
           <>
             <div className="text-[11px] uppercase tracking-[0.18em] text-white/35">
               {draft ? "Streaming paragraph" : "Transcript paragraph"}
             </div>
-            <div className="mt-2 whitespace-pre-wrap text-sm leading-7 text-white/82">
+            <div className="mt-2 whitespace-pre-wrap break-words text-sm leading-7 text-white/82">
               {committedText}
               {draft ? (
                 <>
@@ -2071,7 +2071,7 @@ export function RoomClient({ roomId }: { roomId: string }) {
                 </div>
               </div>
 
-              <aside className="grid min-h-0 gap-3 content-start xl:grid-rows-[auto_minmax(0,1fr)]">
+              <aside className="grid min-h-0 gap-3 overflow-hidden xl:grid-rows-[auto_minmax(0,1fr)]">
                 <AiSignalCard score={aiScore} analysis={eyeAnalysis} />
                 <TranscriptFeed state={aiTranscripts} />
               </aside>
