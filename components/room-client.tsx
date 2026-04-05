@@ -751,19 +751,20 @@ function TranscriptFeed({ state }: { state: AiTranscriptState }) {
   }, [committedText, draft]);
 
   return (
-    <div className="meet-slide flex h-full min-h-0 flex-col rounded-2xl bg-[#2a2b2f] px-5 py-4 overflow-hidden" style={{ animationDelay: "40ms" }}>
+    <div className="meet-slide relative rounded-2xl bg-[#2a2b2f] px-5 py-4 overflow-hidden" style={{ animationDelay: "40ms", minHeight: 0 }}>
       <div className="flex items-center justify-between gap-3">
         <div className="text-xs uppercase tracking-[0.2em] text-white/45">
           Live transcript
         </div>
         <span className="text-[11px] text-white/35">
-          {mode === "browser" ? "Browser stream" : mode === "deepgram" ? "Deepgram" : "Waiting"}
+          {mode === "browser" ? "Browser stream" : mode === "deepgram" ? "Deepgram" : mode === "streaming" ? "Streaming" : "Waiting"}
         </span>
       </div>
 
       <div
         ref={scrollRef}
-        className="mt-4 flex-1 overflow-y-auto rounded-xl bg-white/[0.04] px-4 py-4 pr-2 signal-scrollbar"
+        className="mt-3 overflow-y-auto rounded-xl bg-white/[0.04] px-4 py-4 pr-2 signal-scrollbar"
+        style={{ maxHeight: "calc(100% - 2.5rem)" }}
       >
         {liveText ? (
           <>
@@ -1898,8 +1899,8 @@ export function RoomClient({ roomId }: { roomId: string }) {
           from { opacity: 0; transform: translateY(10px); }
           to   { opacity: 1; transform: translateY(0); }
         }
-        .meet-fade   { animation: meetFadeIn  0.38s cubic-bezier(0.4,0,0.2,1) both; }
-        .meet-slide  { animation: meetSlideUp 0.34s cubic-bezier(0.34,1.2,0.64,1) both; }
+        .meet-fade   { animation: meetFadeIn  0.38s cubic-bezier(0.4,0,0.2,1) forwards; animation-iteration-count: 1; }
+        .meet-slide  { animation: meetSlideUp 0.34s cubic-bezier(0.34,1.2,0.64,1) forwards; animation-iteration-count: 1; }
       `}</style>
 
       <div className="relative flex h-screen flex-col overflow-hidden bg-[#202124] text-white">
@@ -1957,13 +1958,13 @@ export function RoomClient({ roomId }: { roomId: string }) {
         )}
 
         {/* ── Main stage — pb-[88px] keeps videos above the control bar ── */}
-        <main className="relative flex flex-1 gap-2 overflow-visible px-2 pb-[88px]">
+        <main className="relative flex flex-1 gap-2 overflow-hidden px-2 pb-[88px]">
           {/* ════════════════════════════════════
               INTERVIEWER VIEW
           ════════════════════════════════════ */}
           {selectedRole === "interviewer" && (
             <div className="grid flex-1 gap-3 xl:grid-cols-[minmax(0,1fr)_420px]">
-              <div className="grid min-h-0 gap-3 grid-rows-[180px_minmax(0,1fr)]">
+              <div className="grid min-h-0 gap-3 grid-rows-[180px_minmax(0,1fr)] overflow-hidden">
                 <div className="grid gap-3 md:grid-cols-[240px_minmax(0,320px)_1fr]">
                   <div className="meet-slide min-h-[180px]" style={{ animationDelay: "20ms" }}>
                     <MeetTile
@@ -2047,7 +2048,7 @@ export function RoomClient({ roomId }: { roomId: string }) {
                       fit={interviewerMainView === "screen" ? "contain" : "cover"}
                       clipContent={interviewerMainView !== "screen"}
                       cameraOff={mainCameraOff}
-                      className="h-full min-h-[420px]"
+                      className="h-full overflow-hidden"
                     />
                   ) : (
                     <WaitingPlaceholder
