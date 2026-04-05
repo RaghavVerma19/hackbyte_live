@@ -133,22 +133,176 @@ function UploadDashboardContent() {
     setErrorMessage("");
     setReport(null);
 
+    let baseReport: ResumeReport = {
+      githubAnalytics: { matches: [] },
+      codingProfilesVerification: { verified: true, results: {} },
+      skillDecay: [],
+    };
+
     try {
       const formData = new FormData();
       formData.append("resume", selectedFile);
 
-      const response = await fetch(`${getApiBaseUrl()}/api/analyze-resume`, {
+      // 1. EXTRACT DATA
+      const extRes = await fetch(`${getApiBaseUrl()}/api/analyze-resume/extract`, {
         method: "POST",
         headers: { Authorization: `Bearer ${token}` },
         body: formData,
       });
 
-      const json = await response.json();
-      if (!response.ok) {
-        throw new Error(json.error || json.message || "Failed to analyze resume.");
+      const extJson = await extRes.json();
+      if (!extRes.ok || !extJson.success) {
+        throw new Error(extJson.message || "Failed to extract resume data.");
       }
 
-      setReport(json.data.verificationReport);
+      const { extractedData, rawText } = extJson.data;
+
+      baseReport.candidate = {
+        name: extractedData?.contactInfo?.name || "Unknown Candidate",
+        email: extractedData?.contactInfo?.email || "Unknown Email",
+      };
+
+      setReport({ ...baseReport });
+
+      // 2. KICK OFF PARALLEL VERIFICATIONS
+      const promises: Promise<any>[] = [];
+
+      // A. ATS Score
+      promises.push(
+        fetch(`${getApiBaseUrl()}/api/verify/ats-score`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+          body: JSON.stringify({ resumeText: rawText })
+        })
+          .then(res => res.json())
+          .then(data => {
+            baseReport.atsAnalysis = data;
+            setReport({ ...baseReport });
+          })
+          .catch(e => console.error("ATS failed", e))
+      );
+
+      // B. GitHub Verification
+      let githubUsername = extractedData?.githubProfile || "";
+      if (!githubUsername) {
+         const githubLinks = (extractedData._pdfHyperlinks || []).filter((l: string) => l.includes("github.com"));
+         if (githubLinks.length > 0) {
+            githubUsername = githubLinks[0];
+         }
+      }
+
+      if (githubUsername) {
+        const ghPromise = fetch(`${getApiBaseUrl()}/api/verify/projects`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+          body: JSON.stringify({ username: githubUsername, resumeProjects: Array.isArray(extractedData?.projects) ? extractedData.projects : [] })
+        })
+          .then(res => res.json())
+          .then(async ghData => {
+            if (ghData.success && ghData.matchedProjects) {
+              baseReport.githubAnalytics = { profile: ghData.githubProfile, matches: [] };
+              
+              const matchPromises = ghData.matchedProjects.map(async (m: any) => {
+                 const matchInfo: any = {
+                    project: m.resumeProject?.name || m.repo?.name,
+                    repo: m.repo?.name,
+                    matchScore: m.matchScore,
+                    language: m.repo?.language,
+                    commits: {}
+                 };
+                 
+                 if (m.repo?.owner?.login && m.repo?.name) {
+                    try {
+                      const cmtRes = await fetch(`${getApiBaseUrl()}/api/verify/github-commits`, {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+                        body: JSON.stringify({ owner: m.repo.owner.login, repoName: m.repo.name })
+                      });
+                      matchInfo.commits = await cmtRes.json();
+                    } catch(e) {}
+                 }
+                 return matchInfo;
+              });
+
+              baseReport.githubAnalytics.matches = await Promise.all(matchPromises);
+              setReport({ ...baseReport });
+
+              if (Array.isArray(extractedData?.skills) && extractedData.skills.length > 0) {
+                 fetch(`${getApiBaseUrl()}/api/verify/github-skill-decay`, {
+                   method: "POST",
+                   headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+                   body: JSON.stringify({ username: githubUsername, claimedSkills: extractedData.skills })
+                 })
+                   .then(r => r.json())
+                   .then(sdData => {
+                      baseReport.skillDecay = sdData;
+                      setReport({ ...baseReport });
+                   })
+                   .catch(e => {});
+              }
+            } else {
+               baseReport.githubAnalytics = { error: "No GitHub matches found" };
+               setReport({ ...baseReport });
+            }
+          })
+          .catch(e => {
+             baseReport.githubAnalytics = { error: e.message };
+             setReport({ ...baseReport });
+          });
+        
+        promises.push(ghPromise);
+      } else {
+        baseReport.githubAnalytics = { error: "No valid GitHub profile found on resume." };
+        setReport({ ...baseReport });
+      }
+
+      // C. Coding Profiles Verification
+      if (extractedData?.codingProfiles && Object.keys(extractedData.codingProfiles).length > 0) {
+        promises.push(
+          fetch(`${getApiBaseUrl()}/api/verify/coding-profiles`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+            body: JSON.stringify({ codingProfiles: extractedData.codingProfiles })
+          })
+            .then(res => res.json())
+            .then(data => {
+              if (data.success) {
+                baseReport.codingProfilesVerification = data.data;
+                setReport({ ...baseReport });
+              }
+            })
+            .catch(e => console.error("Coding profiles failed", e))
+        );
+      }
+
+      // 3. AWAIT VERIFICATIONS
+      await Promise.allSettled(promises);
+
+      // 4. GENERATE FINAL REVIEW
+      try {
+        const revRes = await fetch(`${getApiBaseUrl()}/api/generate-review`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+          body: JSON.stringify({
+            verificationData: {
+               candidate: baseReport.candidate,
+               atsAnalysis: baseReport.atsAnalysis,
+               githubAnalytics: baseReport.githubAnalytics,
+               skillDecay: baseReport.skillDecay,
+               codingProfilesVerification: baseReport.codingProfilesVerification,
+               internships: extractedData?.internships || []
+            }
+          })
+        });
+        if (revRes.ok) {
+           const revData = await revRes.json();
+           baseReport.finalAutomatedReview = revData;
+           setReport({ ...baseReport });
+        }
+      } catch (e) {
+        console.error("Final review failed", e);
+      }
+
       setStatus("complete");
     } catch (error) {
       setErrorMessage(error instanceof Error ? error.message : "Unable to analyze resume.");
@@ -280,23 +434,25 @@ function UploadDashboardContent() {
               </div>
             ) : null}
 
-            {status === "analyzing" ? (
-              <div className="mt-6 flex items-center gap-4 rounded-[24px] border border-white/10 bg-white/[0.06] px-5 py-4">
-                <LoaderCircle className="h-5 w-5 animate-spin text-teal-200" />
-                <div>
-                  <div className="text-sm font-medium">
-                    {mode === "resume" ? "Running resume verification" : "Scanning ATS compatibility"}
-                  </div>
-                  <div className="mt-1 text-sm text-white/55">
-                    {mode === "resume"
-                      ? "Parsing PDF, checking public proof, and preparing the recruiter summary."
-                      : "Evaluating structure, readability, and keyword density for ATS systems."}
+            {status === "analyzing" || (mode === "ats" && atsScore === null) ? (
+              <div className="mt-6 flex items-center justify-between rounded-[24px] border border-white/10 bg-white/[0.06] px-5 py-4">
+                <div className="flex items-center gap-4">
+                  <LoaderCircle className="h-5 w-5 animate-spin text-teal-200" />
+                  <div>
+                    <div className="text-sm font-medium">
+                      {mode === "resume" ? (report ? "Verifying background claims in parallel..." : "Extracting candidate identity...") : "Scanning ATS compatibility"}
+                    </div>
+                    <div className="mt-1 text-sm text-white/55">
+                      {mode === "resume"
+                        ? (report ? "Connecting to GitHub APIs & coding profiles to validate skills." : "Parsing PDF layout, tracking hyperlinks, and structuring content.")
+                        : "Evaluating structure, readability, and keyword density for ATS systems."}
+                    </div>
                   </div>
                 </div>
               </div>
             ) : null}
 
-            {mode === "resume" && status === "complete" && report ? (
+            {mode === "resume" && report ? (
               <div className="mt-8 grid gap-5 lg:grid-cols-2">
                 <Panel eyebrow="Candidate" title={report.candidate?.name || "Candidate parsed"}>
                   <div className="text-sm text-white/55">{report.candidate?.email || "Email unavailable"}</div>
@@ -318,7 +474,7 @@ function UploadDashboardContent() {
 
                 <Panel eyebrow="Decision" title="Verification summary">
                   <div className="text-sm leading-7 text-white/75">
-                    {report.finalAutomatedReview?.summary || "Verification finished successfully."}
+                    {report.finalAutomatedReview?.summary || (status === "analyzing" ? "Waiting for background verifications to complete before generating final review." : "Verification finished successfully.")}
                   </div>
                   <div className="mt-5 space-y-3">
                     {(report.finalAutomatedReview?.focusAreas || []).map((item) => (
