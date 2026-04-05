@@ -75,6 +75,8 @@ type AiScoreState = {
     | "scoring_disabled";
   detail: string;
   transcriptMode: "waiting" | "browser" | "deepgram" | "streaming";
+  bufferWordCount: number;
+  bufferThreshold: number;
 };
 type AiTranscriptEntry = {
   text: string;
@@ -137,6 +139,8 @@ const EMPTY_AI_SCORE: AiScoreState = {
   status: "idle",
   detail: "Waiting for candidate audio.",
   transcriptMode: "waiting",
+  bufferWordCount: 0,
+  bufferThreshold: 60,
 };
 const EMPTY_AI_TRANSCRIPTS: AiTranscriptState = {
   transcripts: [],
@@ -734,6 +738,20 @@ function AiSignalCard({
         <span className="capitalize">{score.confidence} confidence</span>
         <span>{statusLabel}</span>
       </div>
+      {score.bufferThreshold > 0 && (
+        <div className="mt-3 rounded-xl bg-white/[0.04] px-4 py-3">
+          <div className="flex items-center justify-between text-[11px] text-white/45">
+            <span>Paragraph buffer</span>
+            <span>{score.bufferWordCount}/{score.bufferThreshold} words</span>
+          </div>
+          <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-white/8">
+            <div
+              className="h-full rounded-full bg-blue-400 transition-all duration-300"
+              style={{ width: `${Math.min((score.bufferWordCount / score.bufferThreshold) * 100, 100)}%` }}
+            />
+          </div>
+        </div>
+      )}
     </div>
   );
 }
